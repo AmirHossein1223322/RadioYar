@@ -2,7 +2,7 @@
 import './style.css';
 import { io } from 'socket.io-client';
 
-const SERVER_URL = 'http://localhost:3000';
+const SERVER_URL = 'http://78.154.103.26:15595';
 
 const socket = io(SERVER_URL, {
   autoConnect: true,
