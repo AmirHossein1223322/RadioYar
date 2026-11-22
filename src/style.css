@@ -25,7 +25,6 @@ body {
 
 button,
 input,
-select,
 textarea {
   font-family: inherit;
 }
@@ -33,6 +32,12 @@ textarea {
 button {
   cursor: pointer;
   border: none;
+  transition: 0.2s;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 #app {
@@ -42,47 +47,91 @@ button {
   padding: 22px;
 }
 
-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 35px;
-  gap: 12px;
+/* ورود */
+
+.auth-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 20px;
 }
 
-.logo {
-  font-size: 25px;
-  font-weight: 800;
+.auth-card {
+  width: 100%;
+  max-width: 480px;
+  padding: 35px;
+  text-align: center;
+  background: #1c1b2b;
+  border: 1px solid #39334e;
+  border-radius: 25px;
+}
+
+.auth-card .logo {
+  font-size: 55px;
+}
+
+.auth-card h1 {
+  font-size: 35px;
   color: #a78bfa;
 }
 
-.profile {
-  background: #25243a;
+.auth-card p {
+  color: #c4bfd3;
+  line-height: 2;
+}
+
+.auth-card input {
+  width: 100%;
+  padding: 14px;
+  margin: 12px 0;
+  border: 1px solid #51416d;
+  border-radius: 12px;
+  background: #10101c;
   color: white;
-  padding: 10px 17px;
-  border-radius: 14px;
-  border: 1px solid #39334e;
-  font-size: 13px;
+  font-size: 16px;
 }
 
-.profile:hover {
-  background: #38304f;
-}
-
-.primary {
+.auth-card button {
+  width: 100%;
+  padding: 14px;
+  border-radius: 12px;
   background: #a78bfa;
   color: #171126;
-  padding: 12px 23px;
-  border-radius: 12px;
+  font-size: 16px;
   font-weight: 700;
-  font-size: 14px;
-  transition: 0.2s;
 }
 
-.primary:hover {
-  background: #c4b5fd;
-  transform: translateY(-2px);
+/* سربرگ */
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 35px;
+  flex-wrap: wrap;
 }
+
+.brand {
+  color: #a78bfa;
+  font-size: 25px;
+  font-weight: 800;
+}
+
+.user-area {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.user-area button {
+  padding: 10px 17px;
+  border-radius: 12px;
+  background: #302650;
+  color: white;
+}
+
+/* صفحه اصلی */
 
 .hero {
   background: linear-gradient(120deg, #5226a8, #211b49);
@@ -100,104 +149,79 @@ header {
 .hero p {
   color: #ddd4ff;
   line-height: 2;
-  margin-bottom: 22px;
 }
 
-.section-title {
-  font-size: 21px;
+.hero button {
+  background: #a78bfa;
+  color: #171126;
+  padding: 13px 22px;
+  border-radius: 12px;
   font-weight: 700;
-  margin: 28px 0 18px;
 }
 
-.stations {
+.section {
+  margin: 35px 0;
+}
+
+.section h2 {
+  font-size: 22px;
+  margin-bottom: 18px;
+}
+
+/* کارت رادیوها */
+
+.station-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 17px;
 }
 
-.station {
+.station-card {
   background: #1c1b2b;
   padding: 18px;
   border-radius: 20px;
   border: 1px solid #302c43;
-  transition: 0.2s;
-  min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.station:hover {
-  transform: translateY(-4px);
+.station-card:hover {
   border-color: #8b5cf6;
+  transform: translateY(-3px);
 }
 
-.station-art {
-  height: 130px;
+.station-icon {
+  height: 110px;
   border-radius: 15px;
   background: linear-gradient(135deg, #7648c9, #25204b);
   display: grid;
   place-items: center;
-  font-size: 48px;
+  font-size: 45px;
 }
 
-.station h3 {
+.station-card h3 {
   margin: 14px 0 5px;
   font-size: 17px;
 }
 
-.station p {
+.station-card p {
   color: #aaa6bd;
   font-size: 13px;
   line-height: 1.9;
 }
 
-.play {
+.station-card button {
   background: #302650;
   color: white;
-  padding: 9px 13px;
+  padding: 10px 14px;
   border-radius: 10px;
-  margin: 5px 2px;
-  font-size: 12px;
-  transition: 0.2s;
+  margin-top: 8px;
 }
 
-.play:hover {
+.station-card button:hover {
   background: #6d48a9;
 }
 
-.plan-info {
-  color: #c4b5fd;
-  background: #1c1b2b;
-  border: 1px solid #39334e;
-  border-radius: 12px;
-  padding: 13px;
-  margin-top: 25px;
-  font-size: 14px;
-  line-height: 2;
-}
-
-nav {
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  background: #1c1b2b;
-  padding: 17px 10px;
-  border-radius: 18px;
-  margin-top: 35px;
-  flex-wrap: wrap;
-  gap: 12px;
-  color: #b8afd0;
-  border: 1px solid #302c43;
-}
-
-nav span {
-  cursor: pointer;
-  transition: 0.2s;
-  font-size: 14px;
-}
-
-nav span:hover {
-  color: #a78bfa;
-}
+/* پنجره ساخت رادیو */
 
 .modal {
   position: fixed;
@@ -210,54 +234,30 @@ nav span:hover {
   overflow-y: auto;
 }
 
-.auth-box {
-  background: #1c1b2b;
+/* اصلاح اصلی مشکل پنجره */
+
+.hidden {
+  display: none !important;
+}
+
+.modal-card {
   width: 100%;
-  max-width: 420px;
+  max-width: 430px;
   padding: 30px;
-  border-radius: 24px;
+  background: #1c1b2b;
+  border: 1px solid #51416d;
+  border-radius: 22px;
   position: relative;
   text-align: center;
-  border: 1px solid #39334e;
   box-shadow: 0 15px 60px #0008;
-  animation: showModal 0.25s ease;
-  margin: auto;
 }
 
-@keyframes showModal {
-  from {
-    opacity: 0;
-    transform: translateY(15px);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+.modal-card h2 {
+  margin: 15px 0 25px;
+  font-size: 25px;
 }
 
-.auth-box h2 {
-  margin: 25px 0;
-  font-size: 23px;
-}
-
-.close {
-  position: absolute;
-  top: 15px;
-  left: 15px;
-  background: #302b43;
-  color: white;
-  padding: 9px 12px;
-  border-radius: 10px;
-}
-
-.close:hover {
-  background: #594276;
-}
-
-.auth-box input,
-.auth-box select,
-.auth-box textarea {
+.modal-card input {
   display: block;
   width: 100%;
   padding: 14px;
@@ -266,38 +266,71 @@ nav span:hover {
   border-radius: 12px;
   background: #10101c;
   color: white;
-  font-size: 14px;
+  font-size: 15px;
   outline: none;
 }
 
-.auth-box input:focus,
-.auth-box select:focus,
-.auth-box textarea:focus {
+.modal-card input:focus {
   border-color: #a78bfa;
-  box-shadow: 0 0 0 3px #a78bfa20;
 }
 
-.auth-box textarea {
-  resize: vertical;
-  min-height: 90px;
-}
-
-.auth-submit {
+.modal-card button[type="submit"] {
   width: 100%;
   margin-top: 12px;
   padding: 14px;
+  border-radius: 12px;
+  background: #a78bfa;
+  color: #171126;
+  font-weight: 700;
+  font-size: 15px;
 }
 
-#authMessage {
-  color: #ff9292;
-  font-size: 13px;
-  min-height: 18px;
-  line-height: 1.8;
+.close-modal {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: #302b43;
+  color: white;
+  padding: 8px 13px;
+  border-radius: 10px;
+  font-size: 20px;
 }
 
-[hidden] {
-  display: none !important;
+/* پیام‌ها */
+
+.toast {
+  position: fixed;
+  z-index: 2000;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: calc(100% - 30px);
+  padding: 13px 20px;
+  background: #302650;
+  color: white;
+  border: 1px solid #8b5cf6;
+  border-radius: 12px;
+  text-align: center;
+  box-shadow: 0 8px 30px #0008;
 }
+
+/* پخش‌کننده */
+
+#livePlayer button {
+  padding: 10px 15px;
+  border-radius: 10px;
+  background: #a78bfa;
+  color: #171126;
+  font-weight: 700;
+}
+
+#livePlayer audio {
+  width: 100%;
+  margin-top: 12px;
+}
+
+/* اسکرول */
 
 ::-webkit-scrollbar {
   width: 7px;
@@ -312,26 +345,14 @@ nav span:hover {
   border-radius: 10px;
 }
 
-@media (max-width: 800px) {
-  #app {
-    padding: 18px;
-  }
-
-  .hero h1 {
-    font-size: 28px;
-  }
-
-  .stations {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
+/* موبایل */
 
 @media (max-width: 550px) {
   #app {
     padding: 15px;
   }
 
-  .logo {
+  .brand {
     font-size: 21px;
   }
 
@@ -343,39 +364,35 @@ nav span:hover {
     font-size: 25px;
   }
 
-  .stations {
+  .station-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
   }
 
-  .station {
+  .station-card {
     padding: 12px;
   }
 
-  .station-art {
-    height: 105px;
-    font-size: 40px;
+  .station-icon {
+    height: 95px;
+    font-size: 38px;
   }
 
-  .station h3 {
+  .station-card h3 {
     font-size: 15px;
   }
 
-  .station p {
-    font-size: 12px;
+  .modal-card {
+    padding: 28px 18px;
   }
 
-  nav span {
-    font-size: 12px;
-  }
-
-  .auth-box {
+  .auth-card {
     padding: 25px 18px;
   }
 }
 
 @media (max-width: 350px) {
-  .stations {
+  .station-grid {
     grid-template-columns: 1fr;
   }
 }
