@@ -176,6 +176,7 @@ function cleanupLive() {
 
   if (player) {
     player.style.display = 'none';
+
     const muteButton = player.querySelector('#muteMic');
 
     if (muteButton) {
@@ -249,9 +250,9 @@ async function startStation(station) {
     showPlayer(station.name, true);
     showMessage('درخواست پخش زنده ارسال شد.');
   } catch (error) {
+    console.error(error);
     cleanupLive();
     showMessage('دسترسی به میکروفون ممکن نشد.');
-    console.error(error);
   }
 }
 
@@ -341,7 +342,7 @@ socket.on('station:created', data => {
 
 socket.on('station:error', message => {
   cleanupLive();
-  showMessage(message);
+  showMessage(message || 'خطایی در رادیو رخ داد.');
   render();
 });
 
@@ -495,7 +496,7 @@ function render() {
     document.querySelector('#loginForm').addEventListener('submit', event => {
       event.preventDefault();
 
-      const name = new FormData(event.target).get('name').trim();
+      const name = String(new FormData(event.currentTarget).get('name') || '').trim();
 
       if (!name) return;
 
@@ -518,7 +519,7 @@ function render() {
       <div class="brand">📻 رادیو‌یار</div>
       <div class="user-area">
         <span>${escapeHTML(currentUser.name)}</span>
-        <button id="logoutBtn">خروج</button>
+        <button id="logoutBtn" type="button">خروج</button>
       </div>
     </header>
 
@@ -526,7 +527,7 @@ function render() {
       <section class="hero">
         <h1>به رادیو‌یار خوش آمدی</h1>
         <p>رادیوی خودت را بساز و با دیگران به اشتراک بگذار.</p>
-        <button id="createStationBtn">＋ ساخت رادیوی جدید</button>
+        <button id="createStationBtn" type="button">＋ ساخت رادیوی جدید</button>
       </section>
 
       <section class="section">
@@ -538,11 +539,11 @@ function render() {
                   <article class="station-card">
                     <div class="station-icon">📡</div>
                     <h3>${escapeHTML(item.name)}</h3>
-                    <p>👥 ${item.listeners} شنونده</p>
+                    <p>👥 ${Number(item.listeners) || 0} شنونده</p>
                     ${
                       activeStation?.id === item.id && activeStation.owner
                         ? '<button disabled>رادیوی شما</button>'
-                        : `<button class="joinStationBtn" data-id="${escapeHTML(item.id)}">گوش دادن</button>`
+                        : `<button class="joinStationBtn" data-id="${escapeHTML(item.id)}" type="button">گوش دادن</button>`
                     }
                   </article>
                 `).join('')
@@ -590,60 +591,73 @@ function render() {
   });
 
   document.querySelector('#createStationBtn').addEventListener('click', () => {
-    document.querySelector('#stationModal').classList.remove('hidden');
+    const modal = document.querySelector('#stationModal');
+
+    if (modal) {
+      modal.classList.remove('hidden');
+      modal.querySelector('input[name="name"]')?.focus();
+    }
   });
 
   document.querySelector('#closeModal').addEventListener('click', () => {
-    document.querySelector('#stationModal').classList.add('hidden');
+    document.querySelector('#stationModal')?.classList.add('hidden');
+  });
+
+  document.querySelector('#stationModal').addEventListener('click', event => {
+    if (event.target.id === 'stationModal') {
+      event.currentTarget.classList.add('hidden');
+    }
   });
 
   document.querySelector('#stationForm').addEventListener('submit', event => {
     event.preventDefault();
 
-    const form = new FormData(event.target);
-    const name = String(form.get('name') || '').trim();
-    const description = String(form.get('description') || '').trim();
+    try {
+      const form = new FormData(event.currentTarget);
 
-    if (!name) return;
+      const name = String(form.get('name') || '').trim();
+      const description = String(form.get('description') || '').trim();
 
-    const station = {
-      id: crypto.randomUUID(),
-      name,
-      description,
-      ownerId: currentUser.id
-    };
+      if (!name) {
+        showMessage('نام رادیو را وارد کن.');
+        return;
+      }
 
-    stations.unshift(station);
-    saveData();
+      const station = {
+        id: crypto.randomUUID(),
+        name,
+        description,
+        ownerId: currentUser.id
+      };
 
-    document.querySelector('#stationModal').classList.add('hidden');
+      stations.unshift(station);
+      saveData();
 
-    event.target.reset();
-    render();
-    showMessage('رادیو ساخته شد.');
+      event.currentTarget.reset();
+      document.querySelector('#stationModal')?.classList.add('hidden');
+
+      render();
+      showMessage('رادیو با موفقیت ساخته شد.');
+
+    } catch (error) {
+      console.error('Create station error:', error);
+      showMessage('ساخت رادیو ناموفق بود. دوباره تلاش کن.');
+    }
   });
 
   document.querySelectorAll('.startStationBtn').forEach(button => {
     button.addEventListener('click', () => {
-      const station = stations.find(
-        item => item.id === button.dataset.id
-      );
+      const station = stations.find(item => item.id === button.dataset.id);
 
-      if (station) {
-        startStation(station);
-      }
+      if (station) startStation(station);
     });
   });
 
   document.querySelectorAll('.joinStationBtn').forEach(button => {
     button.addEventListener('click', () => {
-      const station = onlineStations.find(
-        item => item.id === button.dataset.id
-      );
+      const station = onlineStations.find(item => item.id === button.dataset.id);
 
-      if (station) {
-        joinStation(station);
-      }
+      if (station) joinStation(station);
     });
   });
 
