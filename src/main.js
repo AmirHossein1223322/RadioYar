@@ -1,3 +1,4 @@
+
 import './style.css';
 import { io } from 'socket.io-client';
 
@@ -16,7 +17,11 @@ let favorites = JSON.parse(localStorage.getItem('radioyar-favorites') || '[]');
 let profile = JSON.parse(localStorage.getItem('radioyar-profile') || 'null');
 
 if (!profile || typeof profile !== 'object') {
-  profile = { name: currentUser?.name || '', bio: '', photo: '' };
+  profile = {
+    name: currentUser?.name || '',
+    bio: '',
+    photo: ''
+  };
 }
 
 profile = {
@@ -39,6 +44,7 @@ let currentVolume = 1;
 let chatMessages = [];
 let stationSearchText = '';
 let categoryFilter = 'همه';
+let publicProfiles = [];
 
 window.onlineStations = [];
 
@@ -78,19 +84,272 @@ function saveData() {
   localStorage.setItem('radioyar-profile', JSON.stringify(profile));
 }
 
-// ساخت تصویر پروفایل یا آواتار پیش‌فرض
+// ارسال پروفایل به سرور
+function syncProfileToServer() {
+  if (!currentUser || !socket.connected) return;
+
+  socket.emit('profile:update', {
+    id: currentUser.id,
+    name: profile.name || currentUser.name || 'کاربر',
+    bio: profile.bio || '',
+    photo: profile.photo || ''
+  });
+}
+
+// دریافت فهرست پروفایل‌های عمومی
+async function loadPublicProfiles() {
+  try {
+    const response = await fetch(`${SERVER_URL}/api/profiles`);
+
+    if (!response.ok) {
+      throw new Error('دریافت فهرست کاربران ناموفق بود.');
+    }
+
+    const result = await response.json();
+
+    publicProfiles = Array.isArray(result) ? result : [];
+
+  } catch (error) {
+    console.error('Public profiles error:', error);
+  }
+}
+
+// آواتار عمومی
+function publicAvatarMarkup(user, size = 45) {
+  if (user.photo) {
+    return `
+      <img
+        src="${escapeHTML(user.photo)}"
+        alt="عکس پروفایل"
+        style="
+          width:${size}px;
+          height:${size}px;
+          object-fit:cover;
+          border-radius:50%;
+        "
+      >
+    `;
+  }
+
+  const initial = String(user.name || 'ک').trim().charAt(0) || 'ک';
+
+  return `
+    <div style="
+      width:${size}px;
+      height:${size}px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      border-radius:50%;
+      background:linear-gradient(135deg,#7c3aed,#2563eb);
+      color:white;
+      font-size:${Math.round(size * 0.45)}px;
+      font-weight:800;
+      flex-shrink:0;
+    ">${escapeHTML(initial)}</div>
+  `;
+}
+
+// باز کردن پروفایل عمومی
+async function openPublicProfile(userId) {
+  if (!userId) return;
+
+  if (String(userId) === String(currentUser?.id)) {
+    document.querySelector('#profileModal')?.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    const response = await fetch(
+      `${SERVER_URL}/api/profiles/${encodeURIComponent(userId)}`
+    );
+
+    if (!response.ok) {
+      showMessage('پروفایل این کاربر پیدا نشد.');
+      return;
+    }
+
+    const user = await response.json();
+
+    const oldModal = document.querySelector('#publicProfileModal');
+
+    if (oldModal) {
+      oldModal.remove();
+    }
+
+    const userStations = Array.isArray(user.stations)
+      ? user.stations
+      : [];
+
+    const modal = document.createElement('div');
+
+    modal.id = 'publicProfileModal';
+    modal.className = 'modal';
+
+    modal.innerHTML = `
+      <section class="modal-card" style="
+        width:min(100%,480px);
+        max-height:85vh;
+        overflow-y:auto;
+        text-align:center;
+      ">
+        <button
+          type="button"
+          id="closePublicProfile"
+          class="close-modal"
+        >×</button>
+
+        <div style="
+          width:110px;
+          height:110px;
+          margin:20px auto;
+          border-radius:50%;
+          overflow:hidden;
+          background:#38364f;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          border:3px solid #8b5cf6;
+        ">
+          ${publicAvatarMarkup(user, 110)}
+        </div>
+
+        <h2>${escapeHTML(user.name || 'کاربر')}</h2>
+
+        <p style="
+          color:#bbb;
+          line-height:1.8;
+          overflow-wrap:anywhere;
+        ">
+          ${escapeHTML(user.bio || 'این کاربر توضیحی ننوشته است.')}
+        </p>
+
+        <div style="
+          margin:15px 0;
+          padding:12px;
+          background:#25243a;
+          border-radius:12px;
+        ">
+          <strong style="font-size:24px">
+            ${Number(user.stationCount) || userStations.length}
+          </strong>
+
+          <p style="color:#bbb;font-size:12px;margin:4px 0 0">
+            رادیوی ساخته‌شده
+          </p>
+        </div>
+
+        <h3 style="margin-top:20px">📻 رادیوهای این کاربر</h3>
+
+        ${
+          userStations.length
+            ? userStations.map(station => `
+                <div style="
+                  text-align:right;
+                  background:#25243a;
+                  padding:12px;
+                  margin-top:8px;
+                  border-radius:10px;
+                ">
+                  <strong>${escapeHTML(station.name)}</strong>
+
+                  <p style="font-size:12px;color:#bbb;margin-top:5px">
+                    ${escapeHTML(station.category || 'عمومی')}
+                    ${station.online ? ' · 🟢 آنلاین' : ' · آفلاین'}
+                  </p>
+                </div>
+              `).join('')
+            : '<p style="color:#aaa">هنوز رادیویی نساخته است.</p>'
+        }
+      </section>
+    `;
+
+    document.body.appendChild(modal);
+
+    modal.querySelector('#closePublicProfile').addEventListener(
+      'click',
+      () => modal.remove()
+    );
+
+    modal.addEventListener('click', event => {
+      if (event.target === modal) {
+        modal.remove();
+      }
+    });
+
+  } catch (error) {
+    console.error('Public profile error:', error);
+    showMessage('دریافت پروفایل ناموفق بود.');
+  }
+}
+
+// فهرست کاربران
+function renderPublicProfiles() {
+  if (!publicProfiles.length) {
+    return '<p style="color:#aaa">هنوز کاربری ثبت نشده است.</p>';
+  }
+
+  return publicProfiles.map(user => `
+    <article class="station-card">
+      <div style="
+        display:flex;
+        align-items:center;
+        gap:12px;
+        margin-bottom:12px;
+      ">
+        ${publicAvatarMarkup(user, 48)}
+
+        <div style="text-align:right;min-width:0">
+          <strong>${escapeHTML(user.name || 'کاربر')}</strong>
+
+          <p style="
+            color:#aaa;
+            font-size:12px;
+            margin-top:5px;
+          ">
+            ${Number(user.stationCount) || 0} رادیو
+          </p>
+        </div>
+      </div>
+
+      <p style="
+        color:#bbb;
+        font-size:13px;
+        overflow-wrap:anywhere;
+      ">
+        ${escapeHTML(user.bio || 'توضیحی ثبت نشده است.')}
+      </p>
+
+      <button
+        class="viewProfileBtn"
+        data-user-id="${escapeHTML(user.id)}"
+        type="button"
+      >
+        مشاهده پروفایل
+      </button>
+    </article>
+  `).join('');
+}
+
+// آواتار پروفایل شخصی
 function profileAvatarMarkup() {
   if (profile.photo) {
     return `
       <img
         src="${escapeHTML(profile.photo)}"
         alt="عکس پروفایل"
-        style="width:100%;height:100%;object-fit:cover;border-radius:50%"
+        style="
+          width:100%;
+          height:100%;
+          object-fit:cover;
+          border-radius:50%;
+        "
       >
     `;
   }
 
-  const initial = (profile.name || currentUser?.name || 'ک').trim().charAt(0) || 'ک';
+  const initial =
+    (profile.name || currentUser?.name || 'ک').trim().charAt(0) || 'ک';
 
   return `
     <div style="
@@ -103,12 +362,12 @@ function profileAvatarMarkup() {
       background:linear-gradient(135deg,#7c3aed,#2563eb);
       color:white;
       font-size:42px;
-      font-weight:800
+      font-weight:800;
     ">${escapeHTML(initial)}</div>
   `;
 }
 
-// فهرست رادیوهای ساخته‌شده در پروفایل
+// فهرست رادیوهای شخصی در پروفایل
 function renderProfileStations() {
   if (!stations.length) {
     return '<p style="color:#aaa">هنوز رادیویی نساخته‌ای.</p>';
@@ -122,9 +381,10 @@ function renderProfileStations() {
           background:#25243a;
           border:1px solid #3c3954;
           border-radius:10px;
-          text-align:right
+          text-align:right;
         ">
           <strong>${escapeHTML(station.name || 'رادیو بدون نام')}</strong>
+
           <div style="font-size:12px;color:#aaa;margin-top:4px">
             ${escapeHTML(station.category || 'عمومی')}
           </div>
@@ -134,32 +394,46 @@ function renderProfileStations() {
   `;
 }
 
-// کوچک‌کردن عکس برای ذخیره کم‌حجم در گوشی
+// کوچک‌کردن عکس برای ذخیره در گوشی و سرور
 function resizeProfilePhoto(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
     reader.onerror = () => reject(new Error('خواندن عکس ناموفق بود.'));
+
     reader.onload = () => {
       const image = new Image();
 
       image.onerror = () => reject(new Error('فایل عکس قابل خواندن نیست.'));
+
       image.onload = () => {
-        const maxSide = 420;
-        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const maxSide = 320;
+        const scale = Math.min(
+          1,
+          maxSide / Math.max(image.width, image.height)
+        );
+
         const canvas = document.createElement('canvas');
 
         canvas.width = Math.max(1, Math.round(image.width * scale));
         canvas.height = Math.max(1, Math.round(image.height * scale));
 
         const context = canvas.getContext('2d');
+
         if (!context) {
           reject(new Error('پردازش عکس ممکن نشد.'));
           return;
         }
 
-        context.drawImage(image, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.76));
+        context.drawImage(
+          image,
+          0,
+          0,
+          canvas.width,
+          canvas.height
+        );
+
+        resolve(canvas.toDataURL('image/jpeg', 0.58));
       };
 
       image.src = String(reader.result || '');
@@ -222,11 +496,14 @@ function favoriteButton(station) {
 // نمایش پیام
 function showMessage(message) {
   const old = document.querySelector('.toast');
+
   if (old) old.remove();
 
   const toast = document.createElement('div');
+
   toast.className = 'toast';
   toast.textContent = message;
+
   document.body.appendChild(toast);
 
   setTimeout(() => toast.remove(), 3000);
@@ -537,6 +814,9 @@ async function startStation(station) {
   }
 
   try {
+    // مطمئن می‌شویم پروفایل قبل از ساخت رادیو ارسال شده باشد
+    syncProfileToServer();
+
     localStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -640,8 +920,27 @@ async function createOwnerConnection(listenerId) {
   }
 }
 
-// رویدادهای سرور
-socket.on('connect', () => {
+// رویداد اتصال سرور
+socket.on('connect', async () => {
+  syncProfileToServer();
+  await loadPublicProfiles();
+  render();
+});
+
+// تأیید ذخیره پروفایل
+socket.on('profile:saved', async () => {
+  await loadPublicProfiles();
+  render();
+});
+
+// دریافت خطاهای پروفایل
+socket.on('profile:error', message => {
+  showMessage(message || 'ذخیره پروفایل ناموفق بود.');
+});
+
+// به‌روزرسانی فهرست کاربران
+socket.on('profiles:update', async () => {
+  await loadPublicProfiles();
   render();
 });
 
@@ -840,11 +1139,32 @@ function renderOnlineStations() {
 
       <p>${escapeHTML(item.description || 'رادیوی اینترنتی')}</p>
 
-      <p>
-        🏷️ ${escapeHTML(item.category || 'عمومی')}
-      </p>
+      <p>🏷️ ${escapeHTML(item.category || 'عمومی')}</p>
 
       <p>👥 ${Number(item.listeners) || 0} شنونده</p>
+
+      ${
+        item.ownerId
+          ? `
+            <button
+              class="viewProfileBtn"
+              data-user-id="${escapeHTML(item.ownerId)}"
+              type="button"
+              style="
+                background:#38364f;
+                color:#c4b5fd;
+                margin-top:5px;
+              "
+            >
+              👤 سازنده: ${escapeHTML(item.ownerName || 'مشاهده پروفایل')}
+            </button>
+          `
+          : `
+            <p style="font-size:12px;color:#aaa">
+              سازنده: ${escapeHTML(item.ownerName || 'کاربر')}
+            </p>
+          `
+      }
 
       ${
         activeStation?.id === item.id && activeStation.owner
@@ -911,7 +1231,7 @@ function renderMyStations() {
   `).join('');
 }
 
-// ویرایش نام، توضیحات و دسته‌بندی
+// ویرایش رادیو
 function editStation(id) {
   const station = stations.find(
     item => String(item.id) === String(id)
@@ -958,7 +1278,6 @@ function editStation(id) {
   station.description = description.trim();
   station.category = selectedCategory;
 
-  // به‌روزرسانی اطلاعات علاقه‌مندی
   favorites = favorites.map(item =>
     String(item.id) === String(id)
       ? {
@@ -999,7 +1318,6 @@ function deleteStation(id) {
     item => String(item.id) !== String(id)
   );
 
-  // حذف از علاقه‌مندی‌ها نیز
   favorites = favorites.filter(
     item => String(item.id) !== String(id)
   );
@@ -1072,9 +1390,7 @@ function renderFavorites() {
           ${escapeHTML(station.description || 'رادیوی اینترنتی')}
         </p>
 
-        <p>
-          🏷️ ${escapeHTML(station.category || 'عمومی')}
-        </p>
+        <p>🏷️ ${escapeHTML(station.category || 'عمومی')}</p>
 
         ${actionButton}
 
@@ -1089,6 +1405,15 @@ function renderFavorites() {
       </article>
     `;
   }).join('');
+}
+
+// اتصال دکمه‌های پروفایل عمومی
+function attachProfileButtons() {
+  document.querySelectorAll('.viewProfileBtn').forEach(button => {
+    button.addEventListener('click', () => {
+      openPublicProfile(button.dataset.userId);
+    });
+  });
 }
 
 // اتصال دکمه‌های ورود به رادیو
@@ -1204,6 +1529,10 @@ function render() {
       };
 
       saveData();
+
+      syncProfileToServer();
+      loadPublicProfiles().then(() => render());
+
       render();
     });
 
@@ -1284,6 +1613,14 @@ function render() {
       </section>
 
       <section class="section">
+        <h2>👥 کاربران رادیو‌یار</h2>
+
+        <div class="station-grid" id="publicProfilesGrid">
+          ${renderPublicProfiles()}
+        </div>
+      </section>
+
+      <section class="section">
         <h2>رادیوهای من</h2>
 
         <div class="station-grid">
@@ -1353,7 +1690,13 @@ function render() {
 
         <h2 style="margin-top:4px">پروفایل من</h2>
 
-        <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin:18px 0">
+        <div style="
+          display:flex;
+          flex-direction:column;
+          align-items:center;
+          gap:10px;
+          margin:18px 0;
+        ">
           <div id="profileAvatar" style="
             width:112px;
             height:112px;
@@ -1382,7 +1725,10 @@ function render() {
         </div>
 
         <form id="profileForm">
-          <label for="profileName" style="display:block;margin:10px 0 6px">نام نمایشی</label>
+          <label for="profileName" style="display:block;margin:10px 0 6px">
+            نام نمایشی
+          </label>
+
           <input
             id="profileName"
             name="name"
@@ -1392,7 +1738,10 @@ function render() {
             placeholder="نام نمایشی شما"
           >
 
-          <label for="profileBio" style="display:block;margin:12px 0 6px">درباره من</label>
+          <label for="profileBio" style="display:block;margin:12px 0 6px">
+            درباره من
+          </label>
+
           <textarea
             id="profileBio"
             name="bio"
@@ -1413,21 +1762,48 @@ function render() {
           gap:10px;
           margin:18px 0;
         ">
-          <div style="background:#25243a;padding:14px;border-radius:12px;text-align:center">
-            <strong style="display:block;font-size:24px">${stations.length}</strong>
-            <span style="font-size:12px;color:#bbb">رادیوی ساخته‌شده</span>
+          <div style="
+            background:#25243a;
+            padding:14px;
+            border-radius:12px;
+            text-align:center;
+          ">
+            <strong style="display:block;font-size:24px">
+              ${stations.length}
+            </strong>
+
+            <span style="font-size:12px;color:#bbb">
+              رادیوی ساخته‌شده
+            </span>
           </div>
-          <div style="background:#25243a;padding:14px;border-radius:12px;text-align:center">
-            <strong style="display:block;font-size:24px">${favorites.length}</strong>
-            <span style="font-size:12px;color:#bbb">علاقه‌مندی</span>
+
+          <div style="
+            background:#25243a;
+            padding:14px;
+            border-radius:12px;
+            text-align:center;
+          ">
+            <strong style="display:block;font-size:24px">
+              ${favorites.length}
+            </strong>
+
+            <span style="font-size:12px;color:#bbb">
+              علاقه‌مندی
+            </span>
           </div>
         </div>
 
         <h3 style="margin:12px 0">📻 رادیوهای من</h3>
+
         ${renderProfileStations()}
 
-        <p style="font-size:11px;color:#aaa;line-height:1.8;margin-top:16px">
-          اطلاعات این پروفایل فعلاً فقط روی همین دستگاه ذخیره می‌شود و برای کاربران دیگر قابل مشاهده نیست.
+        <p style="
+          font-size:11px;
+          color:#aaa;
+          line-height:1.8;
+          margin-top:16px;
+        ">
+          نام، عکس و توضیحات این پروفایل برای کاربران دیگر قابل مشاهده است.
         </p>
       </section>
     </div>
@@ -1441,8 +1817,10 @@ function render() {
 
     if (grid) {
       grid.innerHTML = renderOnlineStations();
+
       attachJoinButtons();
       attachFavoriteButtons();
+      attachProfileButtons();
     }
   });
 
@@ -1456,8 +1834,10 @@ function render() {
 
     if (grid) {
       grid.innerHTML = renderOnlineStations();
+
       attachJoinButtons();
       attachFavoriteButtons();
+      attachProfileButtons();
     }
   });
 
@@ -1472,12 +1852,12 @@ function render() {
     render();
   });
 
-  // باز کردن پنجره پروفایل
+  // باز کردن پروفایل شخصی
   document.querySelector('#profileBtn').addEventListener('click', () => {
     document.querySelector('#profileModal')?.classList.remove('hidden');
   });
 
-  // بستن پنجره پروفایل
+  // بستن پروفایل شخصی
   document.querySelector('#closeProfileModal').addEventListener('click', () => {
     document.querySelector('#profileModal')?.classList.add('hidden');
   });
@@ -1488,7 +1868,7 @@ function render() {
     }
   });
 
-  // ذخیره عکس پروفایل
+  // انتخاب عکس پروفایل
   document.querySelector('#profilePhotoInput').addEventListener('change', async event => {
     const file = event.currentTarget.files?.[0];
 
@@ -1508,6 +1888,7 @@ function render() {
 
     try {
       const oldPhoto = profile.photo;
+
       profile.photo = await resizeProfilePhoto(file);
 
       try {
@@ -1518,9 +1899,15 @@ function render() {
       }
 
       const avatar = document.querySelector('#profileAvatar');
-      if (avatar) avatar.innerHTML = profileAvatarMarkup();
 
-      showMessage('عکس پروفایل ذخیره شد.');
+      if (avatar) {
+        avatar.innerHTML = profileAvatarMarkup();
+      }
+
+      syncProfileToServer();
+
+      showMessage('عکس پروفایل ذخیره و برای سرور ارسال شد.');
+
     } catch (error) {
       console.error('Profile photo error:', error);
       showMessage('ذخیره عکس ناموفق بود. یک عکس دیگر انتخاب کن.');
@@ -1534,6 +1921,7 @@ function render() {
     event.preventDefault();
 
     const form = new FormData(event.currentTarget);
+
     const name = String(form.get('name') || '').trim();
     const bio = String(form.get('bio') || '').trim();
 
@@ -1558,12 +1946,18 @@ function render() {
 
     try {
       saveData();
+      syncProfileToServer();
+
       render();
-      showMessage('پروفایل ذخیره شد.');
+
+      showMessage('پروفایل ذخیره شد و برای سرور ارسال شد.');
+
     } catch (error) {
       profile = previousProfile;
       currentUser = previousUser;
+
       console.error('Profile save error:', error);
+
       showMessage('ذخیره پروفایل ممکن نشد.');
     }
   });
@@ -1618,6 +2012,7 @@ function render() {
       };
 
       stations.unshift(station);
+
       saveData();
 
       event.currentTarget.reset();
@@ -1634,11 +2029,12 @@ function render() {
     }
   });
 
-  // اتصال تمام دکمه‌ها
+  // اتصال دکمه‌ها
   attachJoinButtons();
   attachStartButtons();
   attachFavoriteButtons();
   attachManagementButtons();
+  attachProfileButtons();
 }
 
 createPlayer();

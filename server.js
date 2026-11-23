@@ -10,16 +10,18 @@ const app = express();
 const server = http.createServer(app);
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 
 const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST']
-  }
+  },
+  maxHttpBufferSize: 1e6
 });
 
 const stations = new Map();
+const profiles = new Map();
 
 const stationCategories = [
   'عمومی',
@@ -31,30 +33,7 @@ const stationCategories = [
   'آموزشی'
 ];
 
-app.get('/', (req, res) => {
-  res.json({
-    app: 'RadioYar',
-    status: 'online',
-    message: 'سرور رادیو‌یار فعال است',
-    totalStations: stations.size,
-    liveStations: getPublicStations().length,
-    categories: stationCategories
-  });
-});
-
-app.get('/api/stations', (req, res) => {
-  res.json(
-    Array.from(stations.entries()).map(([id, station]) => ({
-      id,
-      name: station.name,
-      description: station.description,
-      category: station.category,
-      online: station.online,
-      listeners: Math.max(0, station.members.size - 1)
-    }))
-  );
-});
-
+// اطلاعات عمومی رادیوهای زنده
 function getPublicStations() {
   return Array.from(stations.entries())
     .filter(([, station]) => station.online)
@@ -63,9 +42,77 @@ function getPublicStations() {
       name: station.name,
       description: station.description,
       category: station.category,
+      ownerId: station.ownerId,
+      ownerName: station.ownerName,
       listeners: Math.max(0, station.members.size - 1)
     }));
 }
+
+// اطلاعات عمومی پروفایل
+function getPublicProfile(userId) {
+  const profile = profiles.get(userId);
+
+  if (!profile) return null;
+
+  const userStations = Array.from(stations.entries())
+    .filter(([, station]) => station.ownerId === userId)
+    .map(([id, station]) => ({
+      id,
+      name: station.name,
+      description: station.description,
+      category: station.category,
+      online: station.online
+    }));
+
+  return {
+    id: profile.id,
+    name: profile.name,
+    bio: profile.bio,
+    photo: profile.photo,
+    stationCount: userStations.length,
+    stations: userStations
+  };
+}
+
+// فهرست پروفایل‌ها
+app.get('/api/profiles', (req, res) => {
+  const result = Array.from(profiles.keys())
+    .map(id => getPublicProfile(id))
+    .filter(Boolean);
+
+  res.json(result);
+});
+
+// مشاهده یک پروفایل
+app.get('/api/profiles/:id', (req, res) => {
+  const profile = getPublicProfile(String(req.params.id));
+
+  if (!profile) {
+    return res.status(404).json({
+      error: 'پروفایل پیدا نشد.'
+    });
+  }
+
+  res.json(profile);
+});
+
+// وضعیت سرور
+app.get('/', (req, res) => {
+  res.json({
+    app: 'RadioYar',
+    status: 'online',
+    message: 'سرور رادیو‌یار فعال است',
+    totalStations: stations.size,
+    liveStations: getPublicStations().length,
+    totalProfiles: profiles.size,
+    categories: stationCategories
+  });
+});
+
+// فهرست رادیوها
+app.get('/api/stations', (req, res) => {
+  res.json(getPublicStations());
+});
 
 function updateStations() {
   io.emit('stations:update', getPublicStations());
@@ -115,6 +162,55 @@ io.on('connection', socket => {
 
   socket.emit('stations:update', getPublicStations());
 
+  // ثبت یا به‌روزرسانی پروفایل عمومی
+  socket.on('profile:update', data => {
+    const id = String(data?.id || '').trim();
+    const name = String(data?.name || '').trim();
+    const bio = String(data?.bio || '').trim();
+    const photo = String(data?.photo || '');
+
+    if (!id || id.length > 80) return;
+
+    if (!name || name.length > 40 || bio.length > 160) {
+      socket.emit('profile:error', 'اطلاعات پروفایل معتبر نیست.');
+      return;
+    }
+
+    // فقط تصویر JPEG فشرده‌شده پذیرفته می‌شود
+    if (
+      photo &&
+      (
+        !photo.startsWith('data:image/jpeg;base64,') ||
+        photo.length > 450000
+      )
+    ) {
+      socket.emit('profile:error', 'عکس پروفایل معتبر نیست یا حجم آن زیاد است.');
+      return;
+    }
+
+    const profile = {
+      id,
+      name,
+      bio,
+      photo
+    };
+
+    profiles.set(id, profile);
+    socket.data.userId = id;
+
+    socket.emit('profile:saved', {
+      success: true,
+      id
+    });
+
+    io.emit('profiles:update', {
+      id,
+      name
+    });
+
+    updateStations();
+  });
+
   // ساخت رادیو
   socket.on('station:create', data => {
     const stationId = String(data?.stationId || '').trim();
@@ -144,10 +240,15 @@ io.on('connection', socket => {
       return;
     }
 
+    const ownerId = socket.data.userId || '';
+    const ownerProfile = profiles.get(ownerId);
+
     stations.set(stationId, {
       name,
       description,
       category,
+      ownerId,
+      ownerName: ownerProfile?.name || 'کاربر',
       owner: socket.id,
       online: true,
       members: new Set([socket.id])
@@ -163,9 +264,10 @@ io.on('connection', socket => {
     updateStations();
   });
 
-  // ورود شنونده به رادیو
+  // ورود شنونده
   socket.on('station:join', stationId => {
     stationId = String(stationId || '');
+
     const station = stations.get(stationId);
 
     if (!station || !station.online || !station.owner) {
@@ -188,22 +290,23 @@ io.on('connection', socket => {
     }
   });
 
-  // چت زنده رادیو
+  // چت زنده
   socket.on('chat:send', data => {
     const stationId = String(data?.stationId || '');
     const message = String(data?.message || '').trim();
+
     const station = stations.get(stationId);
 
     if (!station || !station.online) return;
     if (!station.members.has(socket.id)) return;
     if (!message || message.length > 500) return;
 
+    const senderProfile = profiles.get(socket.data.userId);
+
     const chatMessage = {
       stationId,
       senderId: socket.id,
-      senderName: String(data?.senderName || 'کاربر')
-        .trim()
-        .slice(0, 30) || 'کاربر',
+      senderName: senderProfile?.name || 'کاربر',
       message,
       time: new Date().toISOString()
     };
@@ -262,7 +365,7 @@ io.on('connection', socket => {
     leaveStation(socket, String(stationId || ''));
   });
 
-  // قطع اتصال کاربر
+  // قطع اتصال
   socket.on('disconnect', () => {
     for (const [stationId, station] of stations) {
       if (station.owner === socket.id) {
