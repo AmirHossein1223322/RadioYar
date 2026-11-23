@@ -19,7 +19,6 @@ const io = new Server(server, {
   }
 });
 
-// رادیوهای فعال
 const stations = new Map();
 
 app.get('/', (req, res) => {
@@ -32,7 +31,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// فهرست رادیوها
 app.get('/api/stations', (req, res) => {
   res.json(
     Array.from(stations.entries()).map(([id, station]) => ({
@@ -62,7 +60,6 @@ function updateStations() {
 
 function endStation(stationId) {
   const station = stations.get(stationId);
-
   if (!station) return;
 
   for (const memberId of station.members) {
@@ -78,7 +75,6 @@ function endStation(stationId) {
 
 function leaveStation(socket, stationId) {
   const station = stations.get(stationId);
-
   if (!station) return;
 
   if (station.owner === socket.id) {
@@ -106,7 +102,6 @@ io.on('connection', socket => {
 
   socket.emit('stations:update', getPublicStations());
 
-  // ساخت و شروع رادیو
   socket.on('station:create', data => {
     const stationId = String(data?.stationId || '').trim();
     const name = String(data?.name || '').trim();
@@ -142,10 +137,8 @@ io.on('connection', socket => {
     updateStations();
   });
 
-  // ورود شنونده به رادیو
   socket.on('station:join', stationId => {
     stationId = String(stationId || '');
-
     const station = stations.get(stationId);
 
     if (!station || !station.online || !station.owner) {
@@ -168,7 +161,28 @@ io.on('connection', socket => {
     }
   });
 
-  // ارسال Offer از صاحب رادیو به شنونده
+  // چت زنده رادیو
+  socket.on('chat:send', data => {
+    const stationId = String(data?.stationId || '');
+    const message = String(data?.message || '').trim();
+    const station = stations.get(stationId);
+
+    if (!station || !station.online) return;
+    if (!station.members.has(socket.id)) return;
+    if (!message || message.length > 500) return;
+
+    const chatMessage = {
+      stationId,
+      senderId: socket.id,
+      senderName: String(data?.senderName || 'کاربر').trim().slice(0, 30) || 'کاربر',
+      message: message,
+      time: new Date().toISOString()
+    };
+
+    io.to(stationId).emit('chat:message', chatMessage);
+  });
+
+  // WebRTC Offer
   socket.on('webrtc:offer', data => {
     const station = stations.get(data?.stationId);
 
@@ -183,7 +197,7 @@ io.on('connection', socket => {
     });
   });
 
-  // پاسخ شنونده
+  // WebRTC Answer
   socket.on('webrtc:answer', data => {
     const station = stations.get(data?.stationId);
 
@@ -198,7 +212,7 @@ io.on('connection', socket => {
     });
   });
 
-  // ارسال ICE Candidate
+  // ICE Candidate
   socket.on('webrtc:ice', data => {
     const station = stations.get(data?.stationId);
 
@@ -214,12 +228,10 @@ io.on('connection', socket => {
     });
   });
 
-  // خروج از رادیو
   socket.on('station:leave', stationId => {
     leaveStation(socket, String(stationId || ''));
   });
 
-  // قطع اتصال کاربر
   socket.on('disconnect', () => {
     for (const [stationId, station] of stations) {
       if (station.owner === socket.id) {
@@ -233,7 +245,6 @@ io.on('connection', socket => {
   });
 });
 
-// پورت سرور
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, '0.0.0.0', () => {
