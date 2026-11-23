@@ -2,13 +2,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- دسترسی به اینترنت -->
     <uses-permission android:name="android.permission.INTERNET" />
-
-    <!-- دسترسی به میکروفون -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
-
-    <!-- تنظیم صدای دستگاه -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <application
@@ -33,18 +28,6 @@
             </intent-filter>
 
         </activity>
-
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths" />
-
-        </provider>
 
     </application>
 
