@@ -16,376 +16,370 @@ const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST']
-  },
-  maxHttpBufferSize: 1e6
+  }
 });
 
 const stations = new Map();
 const profiles = new Map();
+const listeners = new Map();
 
-const stationCategories = [
-  'عمومی',
-  'موسیقی',
-  'اخبار',
-  'ورزشی',
-  'گفت‌وگو',
-  'سرگرمی',
-  'آموزشی'
-];
+// کاربران آنلاین و اتصال‌های هر کاربر
+const onlineUsers = new Map();
 
-function getPublicStations() {
-  return Array.from(stations.entries())
-    .filter(([, station]) => station.online)
-    .map(([id, station]) => ({
-      id,
-      name: station.name,
-      description: station.description,
-      category: station.category,
-      ownerId: station.ownerId,
-      ownerName: station.ownerName,
-      listeners: Math.max(0, station.members.size - 1)
-    }));
+function getOnlineCount() {
+  return onlineUsers.size;
 }
 
-function getPublicProfile(userId) {
-  const profile = profiles.get(userId);
-
-  if (!profile) return null;
-
-  const userStations = Array.from(stations.entries())
-    .filter(([, station]) => station.ownerId === userId)
-    .map(([id, station]) => ({
-      id,
-      name: station.name,
-      description: station.description,
-      category: station.category,
-      online: station.online
-    }));
-
-  return {
-    id: profile.id,
-    name: profile.name,
-    bio: profile.bio,
-    photo: profile.photo,
-    stationCount: userStations.length,
-    stations: userStations
-  };
+function broadcastOnlineUsers() {
+  io.emit('users:update', getOnlineCount());
 }
 
-app.get('/api/profiles', (req, res) => {
-  const result = Array.from(profiles.keys())
-    .map(id => getPublicProfile(id))
-    .filter(Boolean);
-
-  res.json(result);
-});
-
-app.get('/api/profiles/:id', (req, res) => {
-  const profile = getPublicProfile(String(req.params.id));
-
-  if (!profile) {
-    return res.status(404).json({
-      error: 'پروفایل پیدا نشد.'
-    });
+function addOnlineSocket(userId, socketId) {
+  if (!onlineUsers.has(userId)) {
+    onlineUsers.set(userId, new Set());
   }
 
-  res.json(profile);
-});
+  onlineUsers.get(userId).add(socketId);
+  broadcastOnlineUsers();
+}
+
+function removeOnlineSocket(userId, socketId) {
+  if (!userId) return;
+
+  const connections = onlineUsers.get(userId);
+  if (!connections) return;
+
+  connections.delete(socketId);
+
+  if (connections.size === 0) {
+    onlineUsers.delete(userId);
+  }
+
+  broadcastOnlineUsers();
+}
+
+function getPublicStations() {
+  return [...stations.values()].map(station => ({
+    id: station.id,
+    name: station.name,
+    description: station.description,
+    category: station.category,
+    ownerId: station.ownerId,
+    ownerName: station.ownerName,
+    listeners: listeners.get(station.id)?.size || 0
+  }));
+}
+
+function broadcastStations() {
+  io.emit('stations:update', getPublicStations());
+}
+
+function getProfileList() {
+  return [...profiles.values()].map(profile => ({
+    ...profile,
+    stationCount: [...stations.values()].filter(
+      station => station.ownerId === profile.id
+    ).length
+  }));
+}
 
 app.get('/', (req, res) => {
   res.json({
     app: 'RadioYar',
     status: 'online',
     message: 'سرور رادیو‌یار فعال است',
-    totalStations: stations.size,
-    liveStations: getPublicStations().length,
+    version: '1.0.0',
     totalProfiles: profiles.size,
-    categories: stationCategories
+    totalStations: stations.size,
+    onlineUsers: getOnlineCount()
   });
 });
 
-app.get('/api/stations', (req, res) => {
-  res.json(getPublicStations());
+app.get('/api/profiles', (req, res) => {
+  res.json(getProfileList());
 });
 
-function updateStations() {
-  io.emit('stations:update', getPublicStations());
-}
+app.get('/api/profiles/:id', (req, res) => {
+  const profile = profiles.get(req.params.id);
 
-function endStation(stationId) {
-  const station = stations.get(stationId);
-  if (!station) return;
-
-  for (const memberId of station.members) {
-    io.to(memberId).emit('station:ended', { stationId });
-  }
-
-  station.online = false;
-  station.owner = null;
-  station.members.clear();
-
-  updateStations();
-}
-
-function leaveStation(socket, stationId) {
-  const station = stations.get(stationId);
-  if (!station) return;
-
-  if (station.owner === socket.id) {
-    endStation(stationId);
-    return;
-  }
-
-  if (!station.members.has(socket.id)) return;
-
-  station.members.delete(socket.id);
-  socket.leave(stationId);
-
-  if (station.owner) {
-    io.to(station.owner).emit('listener:left', {
-      stationId,
-      listenerId: socket.id
+  if (!profile) {
+    return res.status(404).json({
+      error: 'پروفایل پیدا نشد'
     });
   }
 
-  updateStations();
-}
+  const userStations = [...stations.values()]
+    .filter(station => station.ownerId === req.params.id)
+    .map(station => ({
+      ...station,
+      online: true
+    }));
+
+  res.json({
+    ...profile,
+    stationCount: userStations.length,
+    stations: userStations
+  });
+});
 
 io.on('connection', socket => {
-  console.log('کاربر متصل شد:', socket.id);
+  console.log('User connected:', socket.id);
+
+  socket.data.userId = null;
+  socket.data.stationId = null;
+  socket.data.isOwner = false;
 
   socket.emit('stations:update', getPublicStations());
+  socket.emit('users:update', getOnlineCount());
 
-  // ثبت یا به‌روزرسانی پروفایل عمومی
-  socket.on('profile:update', data => {
-    const id = String(data?.id || '').trim();
-    const name = String(data?.name || '').trim();
-    const bio = String(data?.bio || '').trim();
-    const photo = String(data?.photo || '');
+  // ثبت یا به‌روزرسانی پروفایل
+  socket.on('profile:update', profile => {
+    if (!profile || !profile.id || !profile.name) return;
 
-    if (!id || id.length > 80) return;
+    const id = String(profile.id);
 
-    if (!name || name.length > 40 || bio.length > 160) {
-      socket.emit('profile:error', 'اطلاعات پروفایل معتبر نیست.');
-      return;
+    // جلوگیری از باقی ماندن اتصال در حساب قبلی
+    if (socket.data.userId && socket.data.userId !== id) {
+      removeOnlineSocket(socket.data.userId, socket.id);
     }
 
-    if (
-      photo &&
-      (
-        !photo.startsWith('data:image/jpeg;base64,') ||
-        photo.length > 450000
-      )
-    ) {
-      socket.emit('profile:error', 'عکس پروفایل معتبر نیست یا حجم آن زیاد است.');
-      return;
-    }
+    socket.data.userId = id;
+    addOnlineSocket(id, socket.id);
 
-    const profile = {
+    const safeProfile = {
       id,
-      name,
-      bio,
-      photo
+      name: String(profile.name).slice(0, 40),
+      bio: String(profile.bio || '').slice(0, 160),
+      photo:
+        typeof profile.photo === 'string' &&
+        profile.photo.startsWith('data:image/jpeg;base64,') &&
+        profile.photo.length <= 450000
+          ? profile.photo
+          : ''
     };
 
-    profiles.set(id, profile);
-    socket.data.userId = id;
+    profiles.set(id, safeProfile);
 
-    socket.emit('profile:saved', {
-      success: true,
-      id
-    });
-
-    io.emit('profiles:update', {
-      id,
-      name
-    });
-
-    updateStations();
+    socket.emit('profile:saved');
+    io.emit('profiles:update', getProfileList());
   });
 
-  // ساخت رادیو و اعلام شروع پخش زنده
+  // ساخت رادیو و شروع پخش
   socket.on('station:create', data => {
-    const stationId = String(data?.stationId || '').trim();
-    const name = String(data?.name || '').trim();
-    const description = String(data?.description || '').trim();
+    if (!data) return;
 
-    const requestedCategory = String(data?.category || 'عمومی').trim();
+    const stationId = String(data.stationId || '');
 
-    const category = stationCategories.includes(requestedCategory)
-      ? requestedCategory
-      : 'عمومی';
+    if (!stationId || !data.name) return;
 
-    if (!stationId || !name || name.length > 60) {
-      socket.emit('station:error', 'اطلاعات رادیو معتبر نیست.');
+    if (!socket.data.userId) {
+      socket.emit('station:error', 'ابتدا پروفایل خود را ثبت کن.');
       return;
     }
 
-    if (description.length > 160) {
-      socket.emit('station:error', 'توضیحات رادیو بیش از حد طولانی است.');
+    if (socket.data.stationId) {
+      socket.emit('station:error', 'ابتدا پخش قبلی را متوقف کن.');
       return;
     }
 
-    const existing = stations.get(stationId);
+    const station = {
+      id: stationId,
+      name: String(data.name).slice(0, 60),
+      description: String(data.description || '').slice(0, 160),
+      category: String(data.category || 'عمومی'),
+      ownerId: socket.data.userId,
+      ownerName:
+        profiles.get(socket.data.userId)?.name || 'کاربر',
+      ownerSocketId: socket.id
+    };
 
-    if (existing?.online) {
-      socket.emit('station:error', 'این رادیو هم‌اکنون فعال است.');
-      return;
-    }
+    stations.set(stationId, station);
+    listeners.set(stationId, new Set());
 
-    const ownerId = socket.data.userId || '';
-    const ownerProfile = profiles.get(ownerId);
-    const ownerName = ownerProfile?.name || 'کاربر';
-
-    stations.set(stationId, {
-      name,
-      description,
-      category,
-      ownerId,
-      ownerName,
-      owner: socket.id,
-      online: true,
-      members: new Set([socket.id])
-    });
+    socket.data.stationId = stationId;
+    socket.data.isOwner = true;
 
     socket.join(stationId);
 
     socket.emit('station:created', {
-      stationId,
-      message: 'رادیو آماده پخش است'
+      message: 'رادیو آماده پخش زنده است.'
     });
 
-    // ارسال اعلان شروع پخش زنده به کاربران متصل
-    io.emit('station:started', {
+    socket.emit('station:started', {
       stationId,
-      name,
-      description,
-      category,
-      ownerId,
-      ownerName,
-      time: new Date().toISOString()
+      name: station.name,
+      ownerId: station.ownerId,
+      ownerName: station.ownerName
     });
 
-    updateStations();
+    broadcastStations();
+    io.emit('profiles:update', getProfileList());
   });
 
   // ورود شنونده
   socket.on('station:join', stationId => {
-    stationId = String(stationId || '');
+    const id = String(stationId || '');
+    const station = stations.get(id);
 
-    const station = stations.get(stationId);
-
-    if (!station || !station.online || !station.owner) {
-      socket.emit('station:error', 'این رادیو در حال حاضر فعال نیست.');
+    if (!station) {
+      socket.emit('station:error', 'این رادیو دیگر فعال نیست.');
       return;
     }
 
-    if (station.owner === socket.id) return;
-
-    if (!station.members.has(socket.id)) {
-      station.members.add(socket.id);
-      socket.join(stationId);
-
-      io.to(station.owner).emit('listener:joined', {
-        stationId,
-        listenerId: socket.id
-      });
-
-      updateStations();
+    if (socket.data.stationId) {
+      leaveStation(socket);
     }
+
+    socket.data.stationId = id;
+    socket.data.isOwner = false;
+
+    socket.join(id);
+
+    if (!listeners.has(id)) {
+      listeners.set(id, new Set());
+    }
+
+    listeners.get(id).add(socket.id);
+
+    const count = listeners.get(id).size;
+
+    io.to(station.ownerSocketId).emit('listener:joined', {
+      stationId: id,
+      listenerId: socket.id,
+      listenerName:
+        profiles.get(socket.data.userId)?.name || 'شنونده جدید',
+      count
+    });
+
+    io.to(id).emit('listeners:update', {
+      stationId: id,
+      count
+    });
+
+    broadcastStations();
   });
 
-  // چت زنده
+  // خروج از رادیو
+  socket.on('station:leave', () => {
+    leaveStation(socket);
+  });
+
+  // پیام چت
   socket.on('chat:send', data => {
-    const stationId = String(data?.stationId || '');
-    const message = String(data?.message || '').trim();
+    const stationId = socket.data.stationId;
 
-    const station = stations.get(stationId);
+    if (!stationId || !stations.has(stationId)) return;
 
-    if (!station || !station.online) return;
-    if (!station.members.has(socket.id)) return;
-    if (!message || message.length > 500) return;
+    const message = String(data?.message || '').slice(0, 500);
 
-    const senderProfile = profiles.get(socket.data.userId);
+    if (!message.trim()) return;
 
     const chatMessage = {
       stationId,
-      senderId: socket.id,
-      senderName: senderProfile?.name || 'کاربر',
+      senderName:
+        profiles.get(socket.data.userId)?.name ||
+        String(data?.senderName || 'کاربر').slice(0, 40),
       message,
-      time: new Date().toISOString()
+      time: Date.now()
     };
 
     io.to(stationId).emit('chat:message', chatMessage);
   });
 
-  // WebRTC Offer
+  // پیشنهاد WebRTC
   socket.on('webrtc:offer', data => {
-    const station = stations.get(data?.stationId);
-
-    if (!station || station.owner !== socket.id) return;
-    if (!station.members.has(data.targetId)) return;
-    if (!data.sdp) return;
+    if (!data?.targetId || !data?.sdp) return;
 
     io.to(data.targetId).emit('webrtc:offer', {
-      stationId: data.stationId,
       from: socket.id,
+      stationId: data.stationId,
       sdp: data.sdp
     });
   });
 
-  // WebRTC Answer
+  // پاسخ WebRTC
   socket.on('webrtc:answer', data => {
-    const station = stations.get(data?.stationId);
-
-    if (!station || station.owner !== data.targetId) return;
-    if (!station.members.has(socket.id)) return;
-    if (!data.sdp) return;
+    if (!data?.targetId || !data?.sdp) return;
 
     io.to(data.targetId).emit('webrtc:answer', {
-      stationId: data.stationId,
       from: socket.id,
+      stationId: data.stationId,
       sdp: data.sdp
     });
   });
 
-  // ICE Candidate
+  // تبادل ICE
   socket.on('webrtc:ice', data => {
-    const station = stations.get(data?.stationId);
-
-    if (!station) return;
-    if (!station.members.has(socket.id)) return;
-    if (!station.members.has(data.targetId)) return;
-    if (!data.candidate) return;
+    if (!data?.targetId || !data?.candidate) return;
 
     io.to(data.targetId).emit('webrtc:ice', {
-      stationId: data.stationId,
       from: socket.id,
+      stationId: data.stationId,
       candidate: data.candidate
     });
   });
 
-  // خروج از رادیو
-  socket.on('station:leave', stationId => {
-    leaveStation(socket, String(stationId || ''));
-  });
+  // مدیریت خروج از رادیو
+  function leaveStation(currentSocket) {
+    const stationId = currentSocket.data.stationId;
 
-  // قطع اتصال
-  socket.on('disconnect', () => {
-    for (const [stationId, station] of stations) {
-      if (station.owner === socket.id) {
-        endStation(stationId);
-      } else {
-        leaveStation(socket, stationId);
+    if (!stationId) return;
+
+    const station = stations.get(stationId);
+
+    if (currentSocket.data.isOwner) {
+      io.to(stationId).emit('station:ended', {
+        stationId
+      });
+
+      stations.delete(stationId);
+      listeners.delete(stationId);
+
+      currentSocket.leave(stationId);
+    } else {
+      currentSocket.leave(stationId);
+
+      const set = listeners.get(stationId);
+
+      if (set) {
+        set.delete(currentSocket.id);
+
+        const count = set.size;
+
+        if (station) {
+          io.to(station.ownerSocketId).emit('listener:left', {
+            stationId,
+            listenerId: currentSocket.id,
+            count
+          });
+        }
+
+        io.to(stationId).emit('listeners:update', {
+          stationId,
+          count
+        });
       }
     }
 
-    console.log('کاربر قطع شد:', socket.id);
+    currentSocket.data.stationId = null;
+    currentSocket.data.isOwner = false;
+
+    broadcastStations();
+    io.emit('profiles:update', getProfileList());
+  }
+
+  // قطع اتصال
+  socket.on('disconnect', () => {
+    leaveStation(socket);
+
+    removeOnlineSocket(socket.data.userId, socket.id);
+
+    console.log('User disconnected:', socket.id);
   });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 15595;
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, () => {
   console.log(`RadioYar server running on port ${PORT}`);
 });

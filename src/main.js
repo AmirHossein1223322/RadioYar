@@ -45,6 +45,7 @@ let chatMessages = [];
 let stationSearchText = '';
 let categoryFilter = 'همه';
 let publicProfiles = [];
+let onlineUsersCount = 0;
 
 window.onlineStations = [];
 
@@ -106,7 +107,6 @@ async function loadPublicProfiles() {
     }
 
     const result = await response.json();
-
     publicProfiles = Array.isArray(result) ? result : [];
 
   } catch (error) {
@@ -173,9 +173,7 @@ async function openPublicProfile(userId) {
 
     const oldModal = document.querySelector('#publicProfileModal');
 
-    if (oldModal) {
-      oldModal.remove();
-    }
+    if (oldModal) oldModal.remove();
 
     const userStations = Array.isArray(user.stations)
       ? user.stations
@@ -272,9 +270,7 @@ async function openPublicProfile(userId) {
     );
 
     modal.addEventListener('click', event => {
-      if (event.target === modal) {
-        modal.remove();
-      }
+      if (event.target === modal) modal.remove();
     });
 
   } catch (error) {
@@ -302,11 +298,7 @@ function renderPublicProfiles() {
         <div style="text-align:right;min-width:0">
           <strong>${escapeHTML(user.name || 'کاربر')}</strong>
 
-          <p style="
-            color:#aaa;
-            font-size:12px;
-            margin-top:5px;
-          ">
+          <p style="color:#aaa;font-size:12px;margin-top:5px">
             ${Number(user.stationCount) || 0} رادیو
           </p>
         </div>
@@ -602,6 +594,14 @@ function createPlayer() {
           ">
             در حال اتصال
           </div>
+
+          <div id="listenerCount" style="
+            font-size:12px;
+            color:#a78bfa;
+            margin-top:6px;
+          ">
+            👥 ۰ شنونده آنلاین
+          </div>
         </div>
 
         <button id="stopLive" type="button">
@@ -717,6 +717,12 @@ function showPlayer(title, owner = false) {
   player.querySelector('#listenerControls').style.display =
     owner ? 'none' : 'block';
 
+  const countElement = player.querySelector('#listenerCount');
+
+  if (countElement) {
+    countElement.textContent = '👥 ۰ شنونده آنلاین';
+  }
+
   resetChat();
 }
 
@@ -766,6 +772,12 @@ function cleanupLive() {
     if (muteButton) {
       muteButton.textContent = 'قطع میکروفون';
     }
+
+    const countElement = player.querySelector('#listenerCount');
+
+    if (countElement) {
+      countElement.textContent = '👥 ۰ شنونده آنلاین';
+    }
   }
 }
 
@@ -814,7 +826,6 @@ async function startStation(station) {
   }
 
   try {
-    // مطمئن می‌شویم پروفایل قبل از ساخت رادیو ارسال شده باشد
     syncProfileToServer();
 
     localStream = await navigator.mediaDevices.getUserMedia({
@@ -944,12 +955,25 @@ socket.on('profiles:update', async () => {
   render();
 });
 
+// دریافت تعداد کاربران آنلاین
+socket.on('users:update', count => {
+  onlineUsersCount = Math.max(0, Number(count) || 0);
+
+  const counter = document.querySelector('#onlineUsersCount');
+
+  if (counter) {
+    counter.textContent = `👥 ${onlineUsersCount} کاربر آنلاین`;
+  }
+});
+
+// قطع ارتباط
 socket.on('disconnect', () => {
   cleanupLive();
   showMessage('ارتباط با سرور قطع شد.');
   render();
 });
 
+// به‌روزرسانی رادیوهای آنلاین
 socket.on('stations:update', onlineStations => {
   window.onlineStations = onlineStations || [];
   render();
@@ -959,10 +983,8 @@ socket.on('stations:update', onlineStations => {
 socket.on('station:started', data => {
   if (!data || !data.stationId) return;
 
-  // فقط رادیوهای موردعلاقه
   if (!isFavorite(data.stationId)) return;
 
-  // اعلان برای رادیوی خود کاربر نمایش داده نشود
   if (String(data.ownerId || '') === String(currentUser?.id || '')) {
     return;
   }
@@ -972,10 +994,12 @@ socket.on('station:started', data => {
   );
 });
 
+// تأیید ساخت رادیو
 socket.on('station:created', data => {
   showMessage(data.message || 'رادیو آماده پخش است.');
 });
 
+// خطای رادیو
 socket.on('station:error', message => {
   cleanupLive();
   showMessage(message || 'خطایی در رادیو رخ داد.');
@@ -985,7 +1009,7 @@ socket.on('station:error', message => {
 // دریافت پیام چت
 socket.on('chat:message', data => {
   if (!activeStation) return;
-  if (data.stationId !== activeStation.id) return;
+  if (String(data.stationId) !== String(activeStation.id)) return;
 
   appendChatMessage(data);
 });
@@ -993,24 +1017,68 @@ socket.on('chat:message', data => {
 // ورود شنونده
 socket.on('listener:joined', async data => {
   if (!activeStation || !activeStation.owner) return;
-  if (data.stationId !== activeStation.id) return;
+  if (String(data.stationId) !== String(activeStation.id)) return;
+
+  showMessage(
+    `👤 ${data.listenerName || 'یک شنونده'} وارد رادیوی شما شد.`
+  );
 
   await createOwnerConnection(data.listenerId);
 });
 
+// به‌روزرسانی تعداد شنوندگان
+socket.on('listeners:update', data => {
+  if (!data || !activeStation) return;
+
+  if (String(data.stationId) !== String(activeStation.id)) return;
+
+  const count = Math.max(0, Number(data.count) || 0);
+
+  const countElement = document.querySelector('#listenerCount');
+
+  if (countElement) {
+    countElement.textContent = `👥 ${count} شنونده آنلاین`;
+  }
+
+  const onlineStation = window.onlineStations.find(
+    item => String(item.id) === String(data.stationId)
+  );
+
+  if (onlineStation) {
+    onlineStation.listeners = count;
+  }
+
+  const grid = document.querySelector('#onlineStationsGrid');
+
+  if (grid) {
+    grid.innerHTML = renderOnlineStations();
+    attachJoinButtons();
+    attachFavoriteButtons();
+    attachProfileButtons();
+  }
+});
+
 // خروج شنونده
 socket.on('listener:left', data => {
+  if (!activeStation || !activeStation.owner) return;
+
+  if (String(data.stationId) !== String(activeStation.id)) return;
+
   const connection = ownerConnections.get(data.listenerId);
 
-  if (connection) connection.close();
+  if (connection) {
+    connection.close();
+  }
 
   ownerConnections.delete(data.listenerId);
+
+  showMessage('👤 یک شنونده از رادیو خارج شد.');
 });
 
 // دریافت پیشنهاد اتصال صوتی
 socket.on('webrtc:offer', async data => {
   if (!activeStation || activeStation.owner) return;
-  if (data.stationId !== activeStation.id) return;
+  if (String(data.stationId) !== String(activeStation.id)) return;
 
   cleanupConnections();
 
@@ -1441,9 +1509,7 @@ function attachJoinButtons() {
         item => String(item.id) === String(button.dataset.id)
       );
 
-      if (station) {
-        joinStation(station);
-      }
+      if (station) joinStation(station);
     });
   });
 }
@@ -1456,9 +1522,7 @@ function attachStartButtons() {
         item => String(item.id) === String(button.dataset.id)
       );
 
-      if (station) {
-        startStation(station);
-      }
+      if (station) startStation(station);
     });
   });
 }
@@ -1474,9 +1538,7 @@ function attachFavoriteButtons() {
         stations.find(item => String(item.id) === String(id)) ||
         favorites.find(item => String(item.id) === String(id));
 
-      if (station) {
-        toggleFavorite(station);
-      }
+      if (station) toggleFavorite(station);
     });
   });
 }
@@ -1547,7 +1609,12 @@ function render() {
 
       saveData();
 
-      syncProfileToServer();
+      if (!socket.connected) {
+        socket.connect();
+      } else {
+        syncProfileToServer();
+      }
+
       loadPublicProfiles().then(() => render());
 
       render();
@@ -1559,6 +1626,18 @@ function render() {
   app.innerHTML = `
     <header class="topbar">
       <div class="brand">📻 رادیو‌یار</div>
+
+      <div
+        id="onlineUsersCount"
+        style="
+          color:#a78bfa;
+          font-size:13px;
+          font-weight:bold;
+          margin:8px 0;
+        "
+      >
+        👥 ${onlineUsersCount} کاربر آنلاین
+      </div>
 
       <div class="user-area">
         <span>${escapeHTML(profile.name || currentUser.name)}</span>
@@ -1860,12 +1939,14 @@ function render() {
 
   // خروج
   document.querySelector('#logoutBtn').addEventListener('click', () => {
-    if (activeStation) {
-      stopLive();
-    }
+    if (activeStation) stopLive();
 
     currentUser = null;
     saveData();
+
+    // قطع اتصال تا کاربر خارج‌شده آنلاین حساب نشود
+    socket.disconnect();
+
     render();
   });
 
