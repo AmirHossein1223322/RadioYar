@@ -33,7 +33,6 @@ const stationCategories = [
   'آموزشی'
 ];
 
-// اطلاعات عمومی رادیوهای زنده
 function getPublicStations() {
   return Array.from(stations.entries())
     .filter(([, station]) => station.online)
@@ -48,7 +47,6 @@ function getPublicStations() {
     }));
 }
 
-// اطلاعات عمومی پروفایل
 function getPublicProfile(userId) {
   const profile = profiles.get(userId);
 
@@ -74,7 +72,6 @@ function getPublicProfile(userId) {
   };
 }
 
-// فهرست پروفایل‌ها
 app.get('/api/profiles', (req, res) => {
   const result = Array.from(profiles.keys())
     .map(id => getPublicProfile(id))
@@ -83,7 +80,6 @@ app.get('/api/profiles', (req, res) => {
   res.json(result);
 });
 
-// مشاهده یک پروفایل
 app.get('/api/profiles/:id', (req, res) => {
   const profile = getPublicProfile(String(req.params.id));
 
@@ -96,7 +92,6 @@ app.get('/api/profiles/:id', (req, res) => {
   res.json(profile);
 });
 
-// وضعیت سرور
 app.get('/', (req, res) => {
   res.json({
     app: 'RadioYar',
@@ -109,7 +104,6 @@ app.get('/', (req, res) => {
   });
 });
 
-// فهرست رادیوها
 app.get('/api/stations', (req, res) => {
   res.json(getPublicStations());
 });
@@ -176,7 +170,6 @@ io.on('connection', socket => {
       return;
     }
 
-    // فقط تصویر JPEG فشرده‌شده پذیرفته می‌شود
     if (
       photo &&
       (
@@ -211,7 +204,7 @@ io.on('connection', socket => {
     updateStations();
   });
 
-  // ساخت رادیو
+  // ساخت رادیو و اعلام شروع پخش زنده
   socket.on('station:create', data => {
     const stationId = String(data?.stationId || '').trim();
     const name = String(data?.name || '').trim();
@@ -242,13 +235,14 @@ io.on('connection', socket => {
 
     const ownerId = socket.data.userId || '';
     const ownerProfile = profiles.get(ownerId);
+    const ownerName = ownerProfile?.name || 'کاربر';
 
     stations.set(stationId, {
       name,
       description,
       category,
       ownerId,
-      ownerName: ownerProfile?.name || 'کاربر',
+      ownerName,
       owner: socket.id,
       online: true,
       members: new Set([socket.id])
@@ -259,6 +253,17 @@ io.on('connection', socket => {
     socket.emit('station:created', {
       stationId,
       message: 'رادیو آماده پخش است'
+    });
+
+    // ارسال اعلان شروع پخش زنده به کاربران متصل
+    io.emit('station:started', {
+      stationId,
+      name,
+      description,
+      category,
+      ownerId,
+      ownerName,
+      time: new Date().toISOString()
     });
 
     updateStations();

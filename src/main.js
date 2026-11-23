@@ -955,6 +955,23 @@ socket.on('stations:update', onlineStations => {
   render();
 });
 
+// اعلان شروع پخش رادیوهای موردعلاقه
+socket.on('station:started', data => {
+  if (!data || !data.stationId) return;
+
+  // فقط رادیوهای موردعلاقه
+  if (!isFavorite(data.stationId)) return;
+
+  // اعلان برای رادیوی خود کاربر نمایش داده نشود
+  if (String(data.ownerId || '') === String(currentUser?.id || '')) {
+    return;
+  }
+
+  showMessage(
+    `🔔 رادیوی «${data.name}» توسط ${data.ownerName || 'کاربر'} شروع به پخش زنده کرد.`
+  );
+});
+
 socket.on('station:created', data => {
   showMessage(data.message || 'رادیو آماده پخش است.');
 });
