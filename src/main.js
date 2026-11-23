@@ -22,8 +22,20 @@ let pendingCandidates = new Map();
 let isMuted = false;
 let currentVolume = 1;
 let chatMessages = [];
+let stationSearchText = '';
+let categoryFilter = 'همه';
 
 window.onlineStations = [];
+
+const stationCategories = [
+  'عمومی',
+  'موسیقی',
+  'اخبار',
+  'ورزشی',
+  'گفت‌وگو',
+  'سرگرمی',
+  'آموزشی'
+];
 
 const iceServers = {
   iceServers: [
@@ -31,12 +43,6 @@ const iceServers = {
     { urls: 'stun:stun1.l.google.com:19302' }
   ]
 };
-
-const samples = [
-  { id: 'sample-1', name: 'رادیو موسیقی', description: 'موسیقی برای لحظه‌های خوب' },
-  { id: 'sample-2', name: 'رادیو آرامش', description: 'آرامش در تمام لحظه‌ها' },
-  { id: 'sample-3', name: 'رادیو شب', description: 'همراه شب‌های شما' }
-];
 
 function escapeHTML(value = '') {
   return String(value).replace(/[&<>"']/g, char => ({
@@ -65,6 +71,7 @@ function showMessage(message) {
   setTimeout(() => toast.remove(), 3000);
 }
 
+// نمایش پیام چت
 function appendChatMessage(data) {
   const box = document.querySelector('#chatMessages');
 
@@ -91,6 +98,7 @@ function appendChatMessage(data) {
       <strong style="color:#a78bfa">
         ${escapeHTML(item.senderName)}
       </strong>
+
       <div style="margin-top:4px">
         ${escapeHTML(item.message)}
       </div>
@@ -100,6 +108,7 @@ function appendChatMessage(data) {
   box.scrollTop = box.scrollHeight;
 }
 
+// پاک کردن چت
 function resetChat() {
   chatMessages = [];
 
@@ -110,6 +119,7 @@ function resetChat() {
   }
 }
 
+// ساخت پنل پخش زنده
 function createPlayer() {
   let player = document.querySelector('#livePlayer');
 
@@ -137,28 +147,56 @@ function createPlayer() {
     `;
 
     player.innerHTML = `
-      <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap">
+      <div style="
+        display:flex;
+        justify-content:space-between;
+        gap:12px;
+        align-items:center;
+        flex-wrap:wrap;
+      ">
         <div>
           <strong id="playerTitle">رادیو زنده</strong>
-          <div id="playerStatus" style="font-size:12px;color:#aaa;margin-top:5px">
+
+          <div id="playerStatus" style="
+            font-size:12px;
+            color:#aaa;
+            margin-top:5px;
+          ">
             در حال اتصال
           </div>
         </div>
-        <button id="stopLive" type="button">توقف پخش</button>
+
+        <button id="stopLive" type="button">
+          توقف پخش
+        </button>
       </div>
 
       <div id="ownerControls" style="display:none;margin-top:15px">
-        <button id="muteMic" type="button">قطع میکروفون</button>
+        <button id="muteMic" type="button">
+          قطع میکروفون
+        </button>
       </div>
 
       <div id="listenerControls" style="display:none;margin-top:15px">
         <label for="volumeControl">بلندی صدا</label>
-        <input id="volumeControl" type="range" min="0" max="100" value="100" style="width:100%">
+
+        <input
+          id="volumeControl"
+          type="range"
+          min="0"
+          max="100"
+          value="100"
+          style="width:100%"
+        >
       </div>
 
       <audio id="liveAudio" autoplay playsinline></audio>
 
-      <div id="chatPanel" style="margin-top:15px;border-top:1px solid #44415e;padding-top:12px">
+      <div id="chatPanel" style="
+        margin-top:15px;
+        border-top:1px solid #44415e;
+        padding-top:12px;
+      ">
         <strong>💬 گفت‌وگوی زنده</strong>
 
         <div id="chatMessages" style="
@@ -182,6 +220,7 @@ function createPlayer() {
             required
             style="flex:1;min-width:0"
           >
+
           <button type="submit">ارسال</button>
         </form>
       </div>
@@ -190,6 +229,7 @@ function createPlayer() {
     document.body.appendChild(player);
 
     player.querySelector('#stopLive').addEventListener('click', stopLive);
+
     player.querySelector('#muteMic').addEventListener('click', toggleMicrophone);
 
     player.querySelector('#volumeControl').addEventListener('input', event => {
@@ -223,11 +263,13 @@ function createPlayer() {
   return player;
 }
 
+// نمایش پنل پخش
 function showPlayer(title, owner = false) {
   const player = createPlayer();
 
   player.style.display = 'block';
   player.querySelector('#playerTitle').textContent = title;
+
   player.querySelector('#playerStatus').textContent =
     owner ? 'رادیوی شما در حال پخش است' : 'در حال گوش دادن';
 
@@ -240,6 +282,7 @@ function showPlayer(title, owner = false) {
   resetChat();
 }
 
+// پاک کردن اتصال‌ها
 function cleanupConnections() {
   if (listenerConnection) {
     listenerConnection.close();
@@ -261,6 +304,7 @@ function cleanupConnections() {
   }
 }
 
+// پایان پخش
 function cleanupLive() {
   cleanupConnections();
 
@@ -287,6 +331,7 @@ function cleanupLive() {
   }
 }
 
+// توقف رادیو
 function stopLive() {
   if (!activeStation) return;
 
@@ -297,6 +342,7 @@ function stopLive() {
   render();
 }
 
+// کنترل میکروفون
 function toggleMicrophone() {
   if (!localStream) return;
 
@@ -317,6 +363,7 @@ function toggleMicrophone() {
   showMessage(isMuted ? 'میکروفون قطع شد.' : 'میکروفون روشن شد.');
 }
 
+// شروع رادیو
 async function startStation(station) {
   if (!socket.connected) {
     showMessage('اتصال به سرور برقرار نیست.');
@@ -340,17 +387,20 @@ async function startStation(station) {
 
     activeStation = {
       ...station,
+      category: station.category || 'عمومی',
       owner: true
     };
 
     socket.emit('station:create', {
       stationId: station.id,
       name: station.name,
-      description: station.description || ''
+      description: station.description || '',
+      category: station.category || 'عمومی'
     });
 
     showPlayer(station.name, true);
     showMessage('درخواست پخش زنده ارسال شد.');
+
   } catch (error) {
     console.error(error);
     cleanupLive();
@@ -358,6 +408,7 @@ async function startStation(station) {
   }
 }
 
+// ورود شنونده به رادیو
 function joinStation(station) {
   if (!socket.connected) {
     showMessage('اتصال به سرور برقرار نیست.');
@@ -375,10 +426,12 @@ function joinStation(station) {
   };
 
   socket.emit('station:join', station.id);
+
   showPlayer(station.name, false);
   showMessage('در حال اتصال به رادیو...');
 }
 
+// اتصال صاحب رادیو به شنونده
 async function createOwnerConnection(listenerId) {
   if (!activeStation || !activeStation.owner || !localStream) return;
   if (ownerConnections.has(listenerId)) return;
@@ -402,8 +455,10 @@ async function createOwnerConnection(listenerId) {
   };
 
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'failed' ||
-        pc.connectionState === 'closed') {
+    if (
+      pc.connectionState === 'failed' ||
+      pc.connectionState === 'closed'
+    ) {
       pc.close();
       ownerConnections.delete(listenerId);
     }
@@ -418,11 +473,13 @@ async function createOwnerConnection(listenerId) {
       targetId: listenerId,
       sdp: pc.localDescription
     });
+
   } catch (error) {
     console.error('Offer error:', error);
   }
 }
 
+// رویدادهای سرور
 socket.on('connect', () => {
   render();
 });
@@ -448,6 +505,7 @@ socket.on('station:error', message => {
   render();
 });
 
+// دریافت پیام چت
 socket.on('chat:message', data => {
   if (!activeStation) return;
   if (data.stationId !== activeStation.id) return;
@@ -455,6 +513,7 @@ socket.on('chat:message', data => {
   appendChatMessage(data);
 });
 
+// ورود شنونده
 socket.on('listener:joined', async data => {
   if (!activeStation || !activeStation.owner) return;
   if (data.stationId !== activeStation.id) return;
@@ -462,6 +521,7 @@ socket.on('listener:joined', async data => {
   await createOwnerConnection(data.listenerId);
 });
 
+// خروج شنونده
 socket.on('listener:left', data => {
   const connection = ownerConnections.get(data.listenerId);
 
@@ -470,6 +530,7 @@ socket.on('listener:left', data => {
   ownerConnections.delete(data.listenerId);
 });
 
+// دریافت پیشنهاد اتصال صوتی
 socket.on('webrtc:offer', async data => {
   if (!activeStation || activeStation.owner) return;
   if (data.stationId !== activeStation.id) return;
@@ -481,6 +542,7 @@ socket.on('webrtc:offer', async data => {
 
   pc.ontrack = event => {
     const audio = createPlayer().querySelector('#liveAudio');
+
     audio.srcObject = event.streams[0];
     audio.volume = currentVolume;
 
@@ -518,12 +580,14 @@ socket.on('webrtc:offer', async data => {
     }
 
     pendingCandidates.delete(data.from);
+
   } catch (error) {
     console.error('Answer error:', error);
     showMessage('اتصال صوتی برقرار نشد.');
   }
 });
 
+// دریافت پاسخ اتصال
 socket.on('webrtc:answer', async data => {
   const pc = ownerConnections.get(data.from);
 
@@ -536,6 +600,7 @@ socket.on('webrtc:answer', async data => {
   }
 });
 
+// دریافت ICE
 socket.on('webrtc:ice', async data => {
   const pc = activeStation?.owner
     ? ownerConnections.get(data.from)
@@ -543,8 +608,10 @@ socket.on('webrtc:ice', async data => {
 
   if (!pc) {
     const list = pendingCandidates.get(data.from) || [];
+
     list.push(data.candidate);
     pendingCandidates.set(data.from, list);
+
     return;
   }
 
@@ -555,6 +622,7 @@ socket.on('webrtc:ice', async data => {
   }
 });
 
+// پایان رادیو از طرف سرور
 socket.on('station:ended', data => {
   if (activeStation?.id !== data.stationId) return;
 
@@ -563,26 +631,118 @@ socket.on('station:ended', data => {
   render();
 });
 
-function stationCard(station, mine = false) {
-  return `
-    <article class="station-card">
-      <div class="station-icon">📻</div>
-      <h3>${escapeHTML(station.name)}</h3>
-      <p>${escapeHTML(station.description || 'رادیوی اینترنتی')}</p>
-
-      ${
-        mine
-          ? `<button class="startStationBtn" data-id="${escapeHTML(station.id)}">
-               شروع پخش زنده
-             </button>`
-          : `<button class="sampleBtn" data-id="${escapeHTML(station.id)}">
-               مشاهده
-             </button>`
-      }
-    </article>
-  `;
+// ساخت فهرست دسته‌بندی‌ها
+function renderCategoryOptions(selected = 'عمومی') {
+  return stationCategories.map(category => `
+    <option
+      value="${escapeHTML(category)}"
+      ${category === selected ? 'selected' : ''}
+    >
+      ${escapeHTML(category)}
+    </option>
+  `).join('');
 }
 
+// ساخت کارت رادیوهای زنده
+function renderOnlineStations() {
+  const search = stationSearchText.trim().toLocaleLowerCase('fa');
+
+  const filteredStations = window.onlineStations.filter(station => {
+    const matchesSearch = String(station.name || '')
+      .toLocaleLowerCase('fa')
+      .includes(search);
+
+    const matchesCategory =
+      categoryFilter === 'همه' ||
+      (station.category || 'عمومی') === categoryFilter;
+
+    return matchesSearch && matchesCategory;
+  });
+
+  if (!filteredStations.length) {
+    return `
+      <p>
+        ${
+          search || categoryFilter !== 'همه'
+            ? 'رادیویی با این مشخصات پیدا نشد.'
+            : 'در حال حاضر رادیوی زنده‌ای وجود ندارد.'
+        }
+      </p>
+    `;
+  }
+
+  return filteredStations.map(item => `
+    <article class="station-card">
+      <div class="station-icon">📡</div>
+
+      <h3>${escapeHTML(item.name)}</h3>
+
+      <p>${escapeHTML(item.description || 'رادیوی اینترنتی')}</p>
+
+      <p>
+        🏷️ ${escapeHTML(item.category || 'عمومی')}
+      </p>
+
+      <p>👥 ${Number(item.listeners) || 0} شنونده</p>
+
+      ${
+        activeStation?.id === item.id && activeStation.owner
+          ? '<button disabled>رادیوی شما</button>'
+          : `
+            <button
+              class="joinStationBtn"
+              data-id="${escapeHTML(item.id)}"
+              type="button"
+            >
+              گوش دادن
+            </button>
+          `
+      }
+    </article>
+  `).join('');
+}
+
+// کارت رادیوهای ساخته‌شده توسط کاربر
+function renderMyStations() {
+  if (!stations.length) {
+    return '<p>هنوز رادیویی نساخته‌ای.</p>';
+  }
+
+  return stations.map(station => `
+    <article class="station-card">
+      <div class="station-icon">📻</div>
+
+      <h3>${escapeHTML(station.name)}</h3>
+
+      <p>${escapeHTML(station.description || 'رادیوی اینترنتی')}</p>
+
+      <p>🏷️ ${escapeHTML(station.category || 'عمومی')}</p>
+
+      <button
+        class="startStationBtn"
+        data-id="${escapeHTML(station.id)}"
+        type="button"
+      >
+        شروع پخش زنده
+      </button>
+    </article>
+  `).join('');
+}
+
+// اتصال دکمه‌های ورود به رادیو
+function attachJoinButtons() {
+  document.querySelectorAll('.joinStationBtn').forEach(button => {
+    button.addEventListener('click', () => {
+      const station = window.onlineStations.find(
+        item => item.id === button.dataset.id
+      );
+
+      if (station) joinStation(station);
+    });
+  });
+}
+
+// صفحه اصلی
 function render() {
   if (!app) return;
 
@@ -591,12 +751,22 @@ function render() {
       <main class="auth-page">
         <section class="auth-card">
           <div class="logo">📻</div>
+
           <h1>رادیو‌یار</h1>
+
           <p>رادیوی خودت را بساز و صدایت را به دیگران برسان.</p>
 
           <form id="loginForm">
-            <input name="name" placeholder="نام شما" required maxlength="40">
-            <button type="submit">ورود به رادیو‌یار</button>
+            <input
+              name="name"
+              placeholder="نام شما"
+              required
+              maxlength="40"
+            >
+
+            <button type="submit">
+              ورود به رادیو‌یار
+            </button>
           </form>
         </section>
       </main>
@@ -605,7 +775,9 @@ function render() {
     document.querySelector('#loginForm').addEventListener('submit', event => {
       event.preventDefault();
 
-      const name = String(new FormData(event.currentTarget).get('name') || '').trim();
+      const name = String(
+        new FormData(event.currentTarget).get('name') || ''
+      ).trim();
 
       if (!name) return;
 
@@ -621,76 +793,151 @@ function render() {
     return;
   }
 
-  const onlineStations = window.onlineStations;
-
   app.innerHTML = `
     <header class="topbar">
       <div class="brand">📻 رادیو‌یار</div>
+
       <div class="user-area">
         <span>${escapeHTML(currentUser.name)}</span>
-        <button id="logoutBtn" type="button">خروج</button>
+
+        <button id="logoutBtn" type="button">
+          خروج
+        </button>
       </div>
     </header>
 
     <main class="dashboard">
+
       <section class="hero">
         <h1>به رادیو‌یار خوش آمدی</h1>
+
         <p>رادیوی خودت را بساز و با دیگران به اشتراک بگذار.</p>
-        <button id="createStationBtn" type="button">＋ ساخت رادیوی جدید</button>
+
+        <button id="createStationBtn" type="button">
+          ＋ ساخت رادیوی جدید
+        </button>
       </section>
 
       <section class="section">
         <h2>رادیوهای زنده</h2>
-        <div class="station-grid">
-          ${
-            onlineStations.length
-              ? onlineStations.map(item => `
-                  <article class="station-card">
-                    <div class="station-icon">📡</div>
-                    <h3>${escapeHTML(item.name)}</h3>
-                    <p>👥 ${Number(item.listeners) || 0} شنونده</p>
-                    ${
-                      activeStation?.id === item.id && activeStation.owner
-                        ? '<button disabled>رادیوی شما</button>'
-                        : `<button class="joinStationBtn" data-id="${escapeHTML(item.id)}" type="button">گوش دادن</button>`
-                    }
-                  </article>
-                `).join('')
-              : '<p>در حال حاضر رادیوی زنده‌ای وجود ندارد.</p>'
-          }
-        </div>
-      </section>
 
-      <section class="section">
-        <h2>رادیوهای پیشنهادی</h2>
-        <div class="station-grid">
-          ${samples.map(station => stationCard(station, false)).join('')}
+        <input
+          id="stationSearch"
+          type="search"
+          placeholder="🔍 جست‌وجوی نام رادیو..."
+          value="${escapeHTML(stationSearchText)}"
+          style="
+            width:100%;
+            max-width:450px;
+            margin:12px 0;
+            padding:13px;
+            border-radius:12px;
+          "
+        >
+
+        <select
+          id="categoryFilter"
+          style="
+            width:100%;
+            max-width:450px;
+            margin:5px 0 15px;
+            padding:13px;
+            border-radius:12px;
+          "
+        >
+          <option value="همه">همه دسته‌بندی‌ها</option>
+          ${renderCategoryOptions()}
+        </select>
+
+        <div class="station-grid" id="onlineStationsGrid">
+          ${renderOnlineStations()}
         </div>
       </section>
 
       <section class="section">
         <h2>رادیوهای من</h2>
+
         <div class="station-grid">
-          ${
-            stations.length
-              ? stations.map(station => stationCard(station, true)).join('')
-              : '<p>هنوز رادیویی نساخته‌ای.</p>'
-          }
+          ${renderMyStations()}
         </div>
       </section>
+
     </main>
 
     <div id="stationModal" class="modal hidden">
       <form id="stationForm" class="modal-card">
-        <button type="button" id="closeModal" class="close-modal">×</button>
+
+        <button
+          type="button"
+          id="closeModal"
+          class="close-modal"
+        >
+          ×
+        </button>
+
         <h2>ساخت رادیو</h2>
-        <input name="name" placeholder="نام رادیو" maxlength="60" required>
-        <input name="description" placeholder="توضیح کوتاه" maxlength="160">
-        <button type="submit">ساخت رادیو</button>
+
+        <input
+          name="name"
+          placeholder="نام رادیو"
+          maxlength="60"
+          required
+        >
+
+        <input
+          name="description"
+          placeholder="توضیح کوتاه"
+          maxlength="160"
+        >
+
+        <label for="stationCategory" style="display:block;margin:12px 0 6px">
+          دسته‌بندی رادیو
+        </label>
+
+        <select
+          id="stationCategory"
+          name="category"
+          required
+          style="width:100%;padding:12px;border-radius:10px"
+        >
+          ${renderCategoryOptions()}
+        </select>
+
+        <button type="submit">
+          ساخت رادیو
+        </button>
+
       </form>
     </div>
   `;
 
+  // جست‌وجوی نام رادیو
+  document.querySelector('#stationSearch').addEventListener('input', event => {
+    stationSearchText = event.target.value;
+
+    const grid = document.querySelector('#onlineStationsGrid');
+
+    if (grid) {
+      grid.innerHTML = renderOnlineStations();
+      attachJoinButtons();
+    }
+  });
+
+  // فیلتر دسته‌بندی
+  document.querySelector('#categoryFilter').value = categoryFilter;
+
+  document.querySelector('#categoryFilter').addEventListener('change', event => {
+    categoryFilter = event.target.value;
+
+    const grid = document.querySelector('#onlineStationsGrid');
+
+    if (grid) {
+      grid.innerHTML = renderOnlineStations();
+      attachJoinButtons();
+    }
+  });
+
+  // خروج
   document.querySelector('#logoutBtn').addEventListener('click', () => {
     if (activeStation) stopLive();
 
@@ -699,6 +946,7 @@ function render() {
     render();
   });
 
+  // باز کردن فرم ساخت رادیو
   document.querySelector('#createStationBtn').addEventListener('click', () => {
     const modal = document.querySelector('#stationModal');
 
@@ -708,6 +956,7 @@ function render() {
     }
   });
 
+  // بستن فرم
   document.querySelector('#closeModal').addEventListener('click', () => {
     document.querySelector('#stationModal')?.classList.add('hidden');
   });
@@ -718,6 +967,7 @@ function render() {
     }
   });
 
+  // ساخت رادیوی جدید
   document.querySelector('#stationForm').addEventListener('submit', event => {
     event.preventDefault();
 
@@ -726,6 +976,11 @@ function render() {
 
       const name = String(form.get('name') || '').trim();
       const description = String(form.get('description') || '').trim();
+      const requestedCategory = String(form.get('category') || 'عمومی');
+
+      const category = stationCategories.includes(requestedCategory)
+        ? requestedCategory
+        : 'عمومی';
 
       if (!name) {
         showMessage('نام رادیو را وارد کن.');
@@ -736,6 +991,7 @@ function render() {
         id: crypto.randomUUID(),
         name,
         description,
+        category,
         ownerId: currentUser.id
       };
 
@@ -743,9 +999,11 @@ function render() {
       saveData();
 
       event.currentTarget.reset();
+
       document.querySelector('#stationModal')?.classList.add('hidden');
 
       render();
+
       showMessage('رادیو با موفقیت ساخته شد.');
 
     } catch (error) {
@@ -754,6 +1012,7 @@ function render() {
     }
   });
 
+  // شروع رادیوهای شخصی
   document.querySelectorAll('.startStationBtn').forEach(button => {
     button.addEventListener('click', () => {
       const station = stations.find(item => item.id === button.dataset.id);
@@ -762,19 +1021,7 @@ function render() {
     });
   });
 
-  document.querySelectorAll('.joinStationBtn').forEach(button => {
-    button.addEventListener('click', () => {
-      const station = onlineStations.find(item => item.id === button.dataset.id);
-
-      if (station) joinStation(station);
-    });
-  });
-
-  document.querySelectorAll('.sampleBtn').forEach(button => {
-    button.addEventListener('click', () => {
-      showMessage('این رادیو نمونه است و هنوز پخش زنده ندارد.');
-    });
-  });
+  attachJoinButtons();
 }
 
 createPlayer();
