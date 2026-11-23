@@ -21,6 +21,7 @@ let ownerConnections = new Map();
 let pendingCandidates = new Map();
 let isMuted = false;
 let currentVolume = 1;
+let chatMessages = [];
 
 window.onlineStations = [];
 
@@ -64,6 +65,51 @@ function showMessage(message) {
   setTimeout(() => toast.remove(), 3000);
 }
 
+function appendChatMessage(data) {
+  const box = document.querySelector('#chatMessages');
+
+  if (!box) return;
+
+  if (chatMessages.length === 0) {
+    box.innerHTML = '';
+  }
+
+  chatMessages.push(data);
+
+  if (chatMessages.length > 100) {
+    chatMessages.shift();
+  }
+
+  box.innerHTML = chatMessages.map(item => `
+    <div style="
+      margin-bottom:10px;
+      padding:8px;
+      background:#25243a;
+      border-radius:8px;
+      overflow-wrap:anywhere;
+    ">
+      <strong style="color:#a78bfa">
+        ${escapeHTML(item.senderName)}
+      </strong>
+      <div style="margin-top:4px">
+        ${escapeHTML(item.message)}
+      </div>
+    </div>
+  `).join('');
+
+  box.scrollTop = box.scrollHeight;
+}
+
+function resetChat() {
+  chatMessages = [];
+
+  const box = document.querySelector('#chatMessages');
+
+  if (box) {
+    box.innerHTML = '<p style="color:#aaa">هنوز پیامی ارسال نشده است.</p>';
+  }
+}
+
 function createPlayer() {
   let player = document.querySelector('#livePlayer');
 
@@ -86,6 +132,8 @@ function createPlayer() {
       box-shadow:0 10px 35px #0008;
       max-width:600px;
       margin:auto;
+      max-height:85vh;
+      overflow-y:auto;
     `;
 
     player.innerHTML = `
@@ -109,6 +157,34 @@ function createPlayer() {
       </div>
 
       <audio id="liveAudio" autoplay playsinline></audio>
+
+      <div id="chatPanel" style="margin-top:15px;border-top:1px solid #44415e;padding-top:12px">
+        <strong>💬 گفت‌وگوی زنده</strong>
+
+        <div id="chatMessages" style="
+          height:180px;
+          overflow-y:auto;
+          margin:10px 0;
+          padding:10px;
+          background:#171625;
+          border-radius:10px;
+          font-size:13px;
+        ">
+          <p style="color:#aaa">هنوز پیامی ارسال نشده است.</p>
+        </div>
+
+        <form id="chatForm" style="display:flex;gap:8px">
+          <input
+            id="chatInput"
+            type="text"
+            maxlength="500"
+            placeholder="پیامت را بنویس..."
+            required
+            style="flex:1;min-width:0"
+          >
+          <button type="submit">ارسال</button>
+        </form>
+      </div>
     `;
 
     document.body.appendChild(player);
@@ -119,6 +195,28 @@ function createPlayer() {
     player.querySelector('#volumeControl').addEventListener('input', event => {
       currentVolume = Number(event.target.value) / 100;
       player.querySelector('#liveAudio').volume = currentVolume;
+    });
+
+    player.querySelector('#chatForm').addEventListener('submit', event => {
+      event.preventDefault();
+
+      const input = player.querySelector('#chatInput');
+      const message = input.value.trim();
+
+      if (!message || !activeStation) return;
+
+      if (!socket.connected) {
+        showMessage('اتصال به سرور برقرار نیست.');
+        return;
+      }
+
+      socket.emit('chat:send', {
+        stationId: activeStation.id,
+        senderName: currentUser?.name || 'کاربر',
+        message
+      });
+
+      input.value = '';
     });
   }
 
@@ -138,6 +236,8 @@ function showPlayer(title, owner = false) {
 
   player.querySelector('#listenerControls').style.display =
     owner ? 'none' : 'block';
+
+  resetChat();
 }
 
 function cleanupConnections() {
@@ -168,6 +268,8 @@ function cleanupLive() {
     localStream.getTracks().forEach(track => track.stop());
     localStream = null;
   }
+
+  resetChat();
 
   activeStation = null;
   isMuted = false;
@@ -344,6 +446,13 @@ socket.on('station:error', message => {
   cleanupLive();
   showMessage(message || 'خطایی در رادیو رخ داد.');
   render();
+});
+
+socket.on('chat:message', data => {
+  if (!activeStation) return;
+  if (data.stationId !== activeStation.id) return;
+
+  appendChatMessage(data);
 });
 
 socket.on('listener:joined', async data => {
