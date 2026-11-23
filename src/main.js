@@ -13,6 +13,7 @@ const app = document.querySelector('#app');
 
 let currentUser = JSON.parse(localStorage.getItem('radioyar-user') || 'null');
 let stations = JSON.parse(localStorage.getItem('radioyar-stations') || '[]');
+let favorites = JSON.parse(localStorage.getItem('radioyar-favorites') || '[]');
 
 let activeStation = null;
 let localStream = null;
@@ -57,6 +58,56 @@ function escapeHTML(value = '') {
 function saveData() {
   localStorage.setItem('radioyar-user', JSON.stringify(currentUser));
   localStorage.setItem('radioyar-stations', JSON.stringify(stations));
+  localStorage.setItem('radioyar-favorites', JSON.stringify(favorites));
+}
+
+function isFavorite(id) {
+  return favorites.some(item => String(item.id) === String(id));
+}
+
+// افزودن یا حذف علاقه‌مندی
+function toggleFavorite(station) {
+  if (!station || !station.id) return;
+
+  if (isFavorite(station.id)) {
+    favorites = favorites.filter(
+      item => String(item.id) !== String(station.id)
+    );
+
+    showMessage('از علاقه‌مندی‌ها حذف شد.');
+  } else {
+    favorites.unshift({
+      id: station.id,
+      name: station.name || 'رادیو بدون نام',
+      description: station.description || '',
+      category: station.category || 'عمومی'
+    });
+
+    showMessage('⭐ به علاقه‌مندی‌ها اضافه شد.');
+  }
+
+  saveData();
+  render();
+}
+
+// دکمه علاقه‌مندی
+function favoriteButton(station) {
+  const favorite = isFavorite(station.id);
+
+  return `
+    <button
+      class="favoriteBtn"
+      data-id="${escapeHTML(station.id)}"
+      type="button"
+      style="
+        background:${favorite ? '#f59e0b' : '#38364f'};
+        color:white;
+        margin-top:8px;
+      "
+    >
+      ${favorite ? '⭐ حذف از علاقه‌مندی‌ها' : '☆ افزودن به علاقه‌مندی‌ها'}
+    </button>
+  `;
 }
 
 function showMessage(message) {
@@ -74,7 +125,6 @@ function showMessage(message) {
 // نمایش پیام چت
 function appendChatMessage(data) {
   const box = document.querySelector('#chatMessages');
-
   if (!box) return;
 
   if (chatMessages.length === 0) {
@@ -98,7 +148,6 @@ function appendChatMessage(data) {
       <strong style="color:#a78bfa">
         ${escapeHTML(item.senderName)}
       </strong>
-
       <div style="margin-top:4px">
         ${escapeHTML(item.message)}
       </div>
@@ -156,7 +205,6 @@ function createPlayer() {
       ">
         <div>
           <strong id="playerTitle">رادیو زنده</strong>
-
           <div id="playerStatus" style="
             font-size:12px;
             color:#aaa;
@@ -165,21 +213,15 @@ function createPlayer() {
             در حال اتصال
           </div>
         </div>
-
-        <button id="stopLive" type="button">
-          توقف پخش
-        </button>
+        <button id="stopLive" type="button">توقف پخش</button>
       </div>
 
       <div id="ownerControls" style="display:none;margin-top:15px">
-        <button id="muteMic" type="button">
-          قطع میکروفون
-        </button>
+        <button id="muteMic" type="button">قطع میکروفون</button>
       </div>
 
       <div id="listenerControls" style="display:none;margin-top:15px">
         <label for="volumeControl">بلندی صدا</label>
-
         <input
           id="volumeControl"
           type="range"
@@ -220,7 +262,6 @@ function createPlayer() {
             required
             style="flex:1;min-width:0"
           >
-
           <button type="submit">ارسال</button>
         </form>
       </div>
@@ -229,7 +270,6 @@ function createPlayer() {
     document.body.appendChild(player);
 
     player.querySelector('#stopLive').addEventListener('click', stopLive);
-
     player.querySelector('#muteMic').addEventListener('click', toggleMicrophone);
 
     player.querySelector('#volumeControl').addEventListener('input', event => {
@@ -437,7 +477,6 @@ async function createOwnerConnection(listenerId) {
   if (ownerConnections.has(listenerId)) return;
 
   const pc = new RTCPeerConnection(iceServers);
-
   ownerConnections.set(listenerId, pc);
 
   localStream.getTracks().forEach(track => {
@@ -526,7 +565,6 @@ socket.on('listener:left', data => {
   const connection = ownerConnections.get(data.listenerId);
 
   if (connection) connection.close();
-
   ownerConnections.delete(data.listenerId);
 });
 
@@ -590,7 +628,6 @@ socket.on('webrtc:offer', async data => {
 // دریافت پاسخ اتصال
 socket.on('webrtc:answer', async data => {
   const pc = ownerConnections.get(data.from);
-
   if (!pc) return;
 
   try {
@@ -643,7 +680,7 @@ function renderCategoryOptions(selected = 'عمومی') {
   `).join('');
 }
 
-// ساخت کارت رادیوهای زنده
+// کارت رادیوهای زنده
 function renderOnlineStations() {
   const search = stationSearchText.trim().toLocaleLowerCase('fa');
 
@@ -679,9 +716,7 @@ function renderOnlineStations() {
 
       <p>${escapeHTML(item.description || 'رادیوی اینترنتی')}</p>
 
-      <p>
-        🏷️ ${escapeHTML(item.category || 'عمومی')}
-      </p>
+      <p>🏷️ ${escapeHTML(item.category || 'عمومی')}</p>
 
       <p>👥 ${Number(item.listeners) || 0} شنونده</p>
 
@@ -698,6 +733,8 @@ function renderOnlineStations() {
             </button>
           `
       }
+
+      ${favoriteButton(item)}
     </article>
   `).join('');
 }
@@ -725,8 +762,82 @@ function renderMyStations() {
       >
         شروع پخش زنده
       </button>
+
+      ${favoriteButton(station)}
     </article>
   `).join('');
+}
+
+// کارت علاقه‌مندی‌ها
+function renderFavorites() {
+  if (!favorites.length) {
+    return '<p>هنوز رادیویی به علاقه‌مندی‌ها اضافه نکرده‌ای. روی دکمه ستاره یک رادیو بزن.</p>';
+  }
+
+  return favorites.map(favorite => {
+    const onlineStation = window.onlineStations.find(
+      item => String(item.id) === String(favorite.id)
+    );
+
+    const myStation = stations.find(
+      item => String(item.id) === String(favorite.id)
+    );
+
+    const station = onlineStation || myStation || favorite;
+
+    let actionButton = '';
+
+    if (onlineStation) {
+      actionButton = `
+        <button
+          class="joinStationBtn"
+          data-id="${escapeHTML(station.id)}"
+          type="button"
+        >
+          گوش دادن
+        </button>
+      `;
+    } else if (myStation) {
+      actionButton = `
+        <button
+          class="startStationBtn"
+          data-id="${escapeHTML(station.id)}"
+          type="button"
+        >
+          شروع پخش زنده
+        </button>
+      `;
+    } else {
+      actionButton = `
+        <button type="button" disabled>
+          در حال حاضر آفلاین
+        </button>
+      `;
+    }
+
+    return `
+      <article class="station-card">
+        <div class="station-icon">⭐</div>
+
+        <h3>${escapeHTML(station.name)}</h3>
+
+        <p>${escapeHTML(station.description || 'رادیوی اینترنتی')}</p>
+
+        <p>🏷️ ${escapeHTML(station.category || 'عمومی')}</p>
+
+        ${actionButton}
+
+        <button
+          class="favoriteBtn"
+          data-id="${escapeHTML(station.id)}"
+          type="button"
+          style="background:#f59e0b;color:white;margin-top:8px"
+        >
+          ⭐ حذف از علاقه‌مندی‌ها
+        </button>
+      </article>
+    `;
+  }).join('');
 }
 
 // اتصال دکمه‌های ورود به رادیو
@@ -734,10 +845,39 @@ function attachJoinButtons() {
   document.querySelectorAll('.joinStationBtn').forEach(button => {
     button.addEventListener('click', () => {
       const station = window.onlineStations.find(
-        item => item.id === button.dataset.id
+        item => String(item.id) === String(button.dataset.id)
       );
 
       if (station) joinStation(station);
+    });
+  });
+}
+
+// اتصال دکمه‌های شروع رادیوی شخصی
+function attachStartButtons() {
+  document.querySelectorAll('.startStationBtn').forEach(button => {
+    button.addEventListener('click', () => {
+      const station = stations.find(
+        item => String(item.id) === String(button.dataset.id)
+      );
+
+      if (station) startStation(station);
+    });
+  });
+}
+
+// اتصال دکمه‌های علاقه‌مندی
+function attachFavoriteButtons() {
+  document.querySelectorAll('.favoriteBtn').forEach(button => {
+    button.addEventListener('click', () => {
+      const id = button.dataset.id;
+
+      const station =
+        window.onlineStations.find(item => String(item.id) === String(id)) ||
+        stations.find(item => String(item.id) === String(id)) ||
+        favorites.find(item => String(item.id) === String(id));
+
+      if (station) toggleFavorite(station);
     });
   });
 }
@@ -764,9 +904,7 @@ function render() {
               maxlength="40"
             >
 
-            <button type="submit">
-              ورود به رادیو‌یار
-            </button>
+            <button type="submit">ورود به رادیو‌یار</button>
           </form>
         </section>
       </main>
@@ -800,9 +938,7 @@ function render() {
       <div class="user-area">
         <span>${escapeHTML(currentUser.name)}</span>
 
-        <button id="logoutBtn" type="button">
-          خروج
-        </button>
+        <button id="logoutBtn" type="button">خروج</button>
       </div>
     </header>
 
@@ -816,6 +952,14 @@ function render() {
         <button id="createStationBtn" type="button">
           ＋ ساخت رادیوی جدید
         </button>
+      </section>
+
+      <section class="section">
+        <h2>⭐ رادیوهای موردعلاقه من</h2>
+
+        <div class="station-grid">
+          ${renderFavorites()}
+        </div>
       </section>
 
       <section class="section">
@@ -903,9 +1047,7 @@ function render() {
           ${renderCategoryOptions()}
         </select>
 
-        <button type="submit">
-          ساخت رادیو
-        </button>
+        <button type="submit">ساخت رادیو</button>
 
       </form>
     </div>
@@ -920,6 +1062,7 @@ function render() {
     if (grid) {
       grid.innerHTML = renderOnlineStations();
       attachJoinButtons();
+      attachFavoriteButtons();
     }
   });
 
@@ -934,6 +1077,7 @@ function render() {
     if (grid) {
       grid.innerHTML = renderOnlineStations();
       attachJoinButtons();
+      attachFavoriteButtons();
     }
   });
 
@@ -1003,7 +1147,6 @@ function render() {
       document.querySelector('#stationModal')?.classList.add('hidden');
 
       render();
-
       showMessage('رادیو با موفقیت ساخته شد.');
 
     } catch (error) {
@@ -1012,16 +1155,9 @@ function render() {
     }
   });
 
-  // شروع رادیوهای شخصی
-  document.querySelectorAll('.startStationBtn').forEach(button => {
-    button.addEventListener('click', () => {
-      const station = stations.find(item => item.id === button.dataset.id);
-
-      if (station) startStation(station);
-    });
-  });
-
   attachJoinButtons();
+  attachStartButtons();
+  attachFavoriteButtons();
 }
 
 createPlayer();
