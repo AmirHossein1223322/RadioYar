@@ -21,13 +21,24 @@ const io = new Server(server, {
 
 const stations = new Map();
 
+const stationCategories = [
+  'عمومی',
+  'موسیقی',
+  'اخبار',
+  'ورزشی',
+  'گفت‌وگو',
+  'سرگرمی',
+  'آموزشی'
+];
+
 app.get('/', (req, res) => {
   res.json({
     app: 'RadioYar',
     status: 'online',
     message: 'سرور رادیو‌یار فعال است',
     totalStations: stations.size,
-    liveStations: getPublicStations().length
+    liveStations: getPublicStations().length,
+    categories: stationCategories
   });
 });
 
@@ -37,6 +48,7 @@ app.get('/api/stations', (req, res) => {
       id,
       name: station.name,
       description: station.description,
+      category: station.category,
       online: station.online,
       listeners: Math.max(0, station.members.size - 1)
     }))
@@ -50,6 +62,7 @@ function getPublicStations() {
       id,
       name: station.name,
       description: station.description,
+      category: station.category,
       listeners: Math.max(0, station.members.size - 1)
     }));
 }
@@ -102,13 +115,25 @@ io.on('connection', socket => {
 
   socket.emit('stations:update', getPublicStations());
 
+  // ساخت رادیو
   socket.on('station:create', data => {
     const stationId = String(data?.stationId || '').trim();
     const name = String(data?.name || '').trim();
     const description = String(data?.description || '').trim();
 
+    const requestedCategory = String(data?.category || 'عمومی').trim();
+
+    const category = stationCategories.includes(requestedCategory)
+      ? requestedCategory
+      : 'عمومی';
+
     if (!stationId || !name || name.length > 60) {
       socket.emit('station:error', 'اطلاعات رادیو معتبر نیست.');
+      return;
+    }
+
+    if (description.length > 160) {
+      socket.emit('station:error', 'توضیحات رادیو بیش از حد طولانی است.');
       return;
     }
 
@@ -122,6 +147,7 @@ io.on('connection', socket => {
     stations.set(stationId, {
       name,
       description,
+      category,
       owner: socket.id,
       online: true,
       members: new Set([socket.id])
@@ -137,6 +163,7 @@ io.on('connection', socket => {
     updateStations();
   });
 
+  // ورود شنونده به رادیو
   socket.on('station:join', stationId => {
     stationId = String(stationId || '');
     const station = stations.get(stationId);
@@ -174,8 +201,10 @@ io.on('connection', socket => {
     const chatMessage = {
       stationId,
       senderId: socket.id,
-      senderName: String(data?.senderName || 'کاربر').trim().slice(0, 30) || 'کاربر',
-      message: message,
+      senderName: String(data?.senderName || 'کاربر')
+        .trim()
+        .slice(0, 30) || 'کاربر',
+      message,
       time: new Date().toISOString()
     };
 
@@ -228,10 +257,12 @@ io.on('connection', socket => {
     });
   });
 
+  // خروج از رادیو
   socket.on('station:leave', stationId => {
     leaveStation(socket, String(stationId || ''));
   });
 
+  // قطع اتصال کاربر
   socket.on('disconnect', () => {
     for (const [stationId, station] of stations) {
       if (station.owner === socket.id) {
