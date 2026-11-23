@@ -1,4 +1,3 @@
-
 import './style.css';
 import { io } from 'socket.io-client';
 
@@ -14,6 +13,21 @@ const app = document.querySelector('#app');
 let currentUser = JSON.parse(localStorage.getItem('radioyar-user') || 'null');
 let stations = JSON.parse(localStorage.getItem('radioyar-stations') || '[]');
 let favorites = JSON.parse(localStorage.getItem('radioyar-favorites') || '[]');
+let profile = JSON.parse(localStorage.getItem('radioyar-profile') || 'null');
+
+if (!profile || typeof profile !== 'object') {
+  profile = { name: currentUser?.name || '', bio: '', photo: '' };
+}
+
+profile = {
+  name: String(profile.name || currentUser?.name || ''),
+  bio: String(profile.bio || ''),
+  photo: typeof profile.photo === 'string' ? profile.photo : ''
+};
+
+if (currentUser && profile.name) {
+  currentUser.name = profile.name;
+}
 
 let activeStation = null;
 let localStream = null;
@@ -61,6 +75,98 @@ function saveData() {
   localStorage.setItem('radioyar-user', JSON.stringify(currentUser));
   localStorage.setItem('radioyar-stations', JSON.stringify(stations));
   localStorage.setItem('radioyar-favorites', JSON.stringify(favorites));
+  localStorage.setItem('radioyar-profile', JSON.stringify(profile));
+}
+
+// ساخت تصویر پروفایل یا آواتار پیش‌فرض
+function profileAvatarMarkup() {
+  if (profile.photo) {
+    return `
+      <img
+        src="${escapeHTML(profile.photo)}"
+        alt="عکس پروفایل"
+        style="width:100%;height:100%;object-fit:cover;border-radius:50%"
+      >
+    `;
+  }
+
+  const initial = (profile.name || currentUser?.name || 'ک').trim().charAt(0) || 'ک';
+
+  return `
+    <div style="
+      width:100%;
+      height:100%;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      border-radius:50%;
+      background:linear-gradient(135deg,#7c3aed,#2563eb);
+      color:white;
+      font-size:42px;
+      font-weight:800
+    ">${escapeHTML(initial)}</div>
+  `;
+}
+
+// فهرست رادیوهای ساخته‌شده در پروفایل
+function renderProfileStations() {
+  if (!stations.length) {
+    return '<p style="color:#aaa">هنوز رادیویی نساخته‌ای.</p>';
+  }
+
+  return `
+    <div style="display:grid;gap:8px">
+      ${stations.map(station => `
+        <div style="
+          padding:10px 12px;
+          background:#25243a;
+          border:1px solid #3c3954;
+          border-radius:10px;
+          text-align:right
+        ">
+          <strong>${escapeHTML(station.name || 'رادیو بدون نام')}</strong>
+          <div style="font-size:12px;color:#aaa;margin-top:4px">
+            ${escapeHTML(station.category || 'عمومی')}
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// کوچک‌کردن عکس برای ذخیره کم‌حجم در گوشی
+function resizeProfilePhoto(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onerror = () => reject(new Error('خواندن عکس ناموفق بود.'));
+    reader.onload = () => {
+      const image = new Image();
+
+      image.onerror = () => reject(new Error('فایل عکس قابل خواندن نیست.'));
+      image.onload = () => {
+        const maxSide = 420;
+        const scale = Math.min(1, maxSide / Math.max(image.width, image.height));
+        const canvas = document.createElement('canvas');
+
+        canvas.width = Math.max(1, Math.round(image.width * scale));
+        canvas.height = Math.max(1, Math.round(image.height * scale));
+
+        const context = canvas.getContext('2d');
+        if (!context) {
+          reject(new Error('پردازش عکس ممکن نشد.'));
+          return;
+        }
+
+        context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.76));
+      };
+
+      image.src = String(reader.result || '');
+    };
+
+    reader.readAsDataURL(file);
+  });
 }
 
 // بررسی علاقه‌مندی بودن
@@ -1092,6 +1198,11 @@ function render() {
         name
       };
 
+      profile = {
+        ...profile,
+        name
+      };
+
       saveData();
       render();
     });
@@ -1104,7 +1215,11 @@ function render() {
       <div class="brand">📻 رادیو‌یار</div>
 
       <div class="user-area">
-        <span>${escapeHTML(currentUser.name)}</span>
+        <span>${escapeHTML(profile.name || currentUser.name)}</span>
+
+        <button id="profileBtn" type="button">
+          👤 پروفایل من
+        </button>
 
         <button id="logoutBtn" type="button">
           خروج
@@ -1223,6 +1338,99 @@ function render() {
 
       </form>
     </div>
+
+    <div id="profileModal" class="modal hidden">
+      <section class="modal-card" style="
+        width:min(100%,520px);
+        max-height:85vh;
+        overflow-y:auto;
+      ">
+        <button
+          type="button"
+          id="closeProfileModal"
+          class="close-modal"
+        >×</button>
+
+        <h2 style="margin-top:4px">پروفایل من</h2>
+
+        <div style="display:flex;flex-direction:column;align-items:center;gap:10px;margin:18px 0">
+          <div id="profileAvatar" style="
+            width:112px;
+            height:112px;
+            overflow:hidden;
+            border-radius:50%;
+            border:3px solid #8b5cf6;
+          ">
+            ${profileAvatarMarkup()}
+          </div>
+
+          <label for="profilePhotoInput" style="
+            display:inline-block;
+            padding:9px 14px;
+            border-radius:10px;
+            background:#4c1d95;
+            color:white;
+            cursor:pointer;
+          ">📷 انتخاب عکس پروفایل</label>
+
+          <input
+            id="profilePhotoInput"
+            type="file"
+            accept="image/*"
+            style="display:none"
+          >
+        </div>
+
+        <form id="profileForm">
+          <label for="profileName" style="display:block;margin:10px 0 6px">نام نمایشی</label>
+          <input
+            id="profileName"
+            name="name"
+            value="${escapeHTML(profile.name || currentUser.name)}"
+            maxlength="40"
+            required
+            placeholder="نام نمایشی شما"
+          >
+
+          <label for="profileBio" style="display:block;margin:12px 0 6px">درباره من</label>
+          <textarea
+            id="profileBio"
+            name="bio"
+            maxlength="160"
+            rows="3"
+            placeholder="چند کلمه درباره خودت بنویس..."
+            style="width:100%;resize:vertical;box-sizing:border-box"
+          >${escapeHTML(profile.bio)}</textarea>
+
+          <button type="submit" style="width:100%;margin-top:12px">
+            💾 ذخیره پروفایل
+          </button>
+        </form>
+
+        <div style="
+          display:grid;
+          grid-template-columns:1fr 1fr;
+          gap:10px;
+          margin:18px 0;
+        ">
+          <div style="background:#25243a;padding:14px;border-radius:12px;text-align:center">
+            <strong style="display:block;font-size:24px">${stations.length}</strong>
+            <span style="font-size:12px;color:#bbb">رادیوی ساخته‌شده</span>
+          </div>
+          <div style="background:#25243a;padding:14px;border-radius:12px;text-align:center">
+            <strong style="display:block;font-size:24px">${favorites.length}</strong>
+            <span style="font-size:12px;color:#bbb">علاقه‌مندی</span>
+          </div>
+        </div>
+
+        <h3 style="margin:12px 0">📻 رادیوهای من</h3>
+        ${renderProfileStations()}
+
+        <p style="font-size:11px;color:#aaa;line-height:1.8;margin-top:16px">
+          اطلاعات این پروفایل فعلاً فقط روی همین دستگاه ذخیره می‌شود و برای کاربران دیگر قابل مشاهده نیست.
+        </p>
+      </section>
+    </div>
   `;
 
   // جست‌وجوی نام رادیو
@@ -1262,6 +1470,102 @@ function render() {
     currentUser = null;
     saveData();
     render();
+  });
+
+  // باز کردن پنجره پروفایل
+  document.querySelector('#profileBtn').addEventListener('click', () => {
+    document.querySelector('#profileModal')?.classList.remove('hidden');
+  });
+
+  // بستن پنجره پروفایل
+  document.querySelector('#closeProfileModal').addEventListener('click', () => {
+    document.querySelector('#profileModal')?.classList.add('hidden');
+  });
+
+  document.querySelector('#profileModal').addEventListener('click', event => {
+    if (event.target.id === 'profileModal') {
+      event.currentTarget.classList.add('hidden');
+    }
+  });
+
+  // ذخیره عکس پروفایل
+  document.querySelector('#profilePhotoInput').addEventListener('change', async event => {
+    const file = event.currentTarget.files?.[0];
+
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      showMessage('لطفاً یک فایل تصویری انتخاب کن.');
+      event.currentTarget.value = '';
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      showMessage('حجم عکس باید کمتر از ۵ مگابایت باشد.');
+      event.currentTarget.value = '';
+      return;
+    }
+
+    try {
+      const oldPhoto = profile.photo;
+      profile.photo = await resizeProfilePhoto(file);
+
+      try {
+        saveData();
+      } catch (storageError) {
+        profile.photo = oldPhoto;
+        throw storageError;
+      }
+
+      const avatar = document.querySelector('#profileAvatar');
+      if (avatar) avatar.innerHTML = profileAvatarMarkup();
+
+      showMessage('عکس پروفایل ذخیره شد.');
+    } catch (error) {
+      console.error('Profile photo error:', error);
+      showMessage('ذخیره عکس ناموفق بود. یک عکس دیگر انتخاب کن.');
+    }
+
+    event.currentTarget.value = '';
+  });
+
+  // ذخیره نام و توضیحات پروفایل
+  document.querySelector('#profileForm').addEventListener('submit', event => {
+    event.preventDefault();
+
+    const form = new FormData(event.currentTarget);
+    const name = String(form.get('name') || '').trim();
+    const bio = String(form.get('bio') || '').trim();
+
+    if (!name) {
+      showMessage('نام نمایشی را وارد کن.');
+      return;
+    }
+
+    const previousProfile = { ...profile };
+    const previousUser = { ...currentUser };
+
+    profile = {
+      ...profile,
+      name,
+      bio
+    };
+
+    currentUser = {
+      ...currentUser,
+      name
+    };
+
+    try {
+      saveData();
+      render();
+      showMessage('پروفایل ذخیره شد.');
+    } catch (error) {
+      profile = previousProfile;
+      currentUser = previousUser;
+      console.error('Profile save error:', error);
+      showMessage('ذخیره پروفایل ممکن نشد.');
+    }
   });
 
   // باز کردن فرم ساخت رادیو
